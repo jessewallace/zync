@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZynC</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Main screen ───────────────────────────────────────── -->
+  <div id="screen-main" class="screen active">
+    <div class="logo">Zy<span>n</span>C</div>
+
+    <div class="actions">
+      <button id="btn-push" class="btn btn-primary">Push</button>
+
+      <div class="divider">or pull from another machine</div>
+
+      <div class="pull-row">
+        <input
+          id="pull-input"
+          type="text"
+          placeholder="ZEN-XXXX"
+          maxlength="20"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <button id="btn-pull" class="btn btn-secondary">Pull</button>
+      </div>
+    </div>
+
+    <div id="status-main" class="status"></div>
+  </div>
+
+  <!-- ── Push result screen ────────────────────────────────── -->
+  <div id="screen-push" class="screen">
+    <div class="result-label">Sync code</div>
+    <div id="sync-code" class="sync-code" title="Click to copy">ZEN-0000</div>
+    <div class="hint">Share this with your other machine</div>
+
+    <div class="push-actions">
+      <button id="btn-copy" class="btn btn-copy">Copy</button>
+      <button id="btn-push-done" class="btn btn-ghost">Done</button>
+    </div>
+
+    <div id="countdown" class="countdown">Expires in 60:00</div>
+  </div>
+
+  <!-- ── Pull result screen ────────────────────────────────── -->
+  <div id="screen-pull" class="screen">
+    <div class="result-icon">&#10003;</div>
+    <div class="result-label">Sync complete</div>
+    <div id="pull-files" class="pull-files"></div>
+    <button id="btn-pull-done" class="btn btn-ghost">Done</button>
+  </div>
+
+</div>
+<script src="main.js"></script>
+</body>
+</html>
