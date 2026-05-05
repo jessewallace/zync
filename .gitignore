@@ -4,3 +4,4 @@ dist/
 gen/
 *.iml
 .DS_Store
+.worktrees/
