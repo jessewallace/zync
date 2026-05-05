@@ -1,4 +1,5 @@
 mod crypto;
+mod ntfy;
 mod pairing;
 mod profile;
 mod sync;
