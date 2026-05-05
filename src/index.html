@@ -32,6 +32,10 @@
     </div>
 
     <div id="status-main" class="status"></div>
+
+    <div class="nav-row">
+      <button id="btn-open-settings" class="btn-link">⚙ Settings</button>
+    </div>
   </div>
 
   <!-- ── Push result screen ────────────────────────────────── -->
@@ -54,6 +58,41 @@
     <div class="result-label">Sync complete</div>
     <div id="pull-files" class="pull-files"></div>
     <button id="btn-pull-done" class="btn btn-ghost">Done</button>
+  </div>
+
+  <!-- Settings screen -->
+  <div class="screen" id="screen-settings">
+    <div class="settings-header">
+      <h2>Pairing Setup</h2>
+      <p class="settings-hint">Enter the same passphrase on each machine to enable automatic sync.</p>
+    </div>
+
+    <div class="settings-row">
+      <label for="passphrase-input">Passphrase</label>
+      <div class="passphrase-wrap">
+        <input type="password" id="passphrase-input" placeholder="e.g. purple-fox-mountain-7" autocomplete="off" spellcheck="false" />
+        <button id="btn-reveal" type="button">Show</button>
+      </div>
+    </div>
+
+    <div class="settings-row toggles">
+      <label>
+        <input type="checkbox" id="toggle-auto-push" checked />
+        Auto-push when Zen closes
+      </label>
+      <label>
+        <input type="checkbox" id="toggle-auto-pull" checked />
+        Auto-pull when another machine syncs
+      </label>
+    </div>
+
+    <div class="settings-actions">
+      <button id="btn-save-passphrase" class="btn-primary">Save &amp; Pair</button>
+      <button id="btn-forget-passphrase" class="btn-secondary">Forget Passphrase</button>
+    </div>
+
+    <div id="pairing-status" class="pairing-status"></div>
+    <div id="status-settings" class="status"></div>
   </div>
 
 </div>

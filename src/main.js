@@ -196,3 +196,82 @@ document.getElementById("pull-input").addEventListener("input", (e) => {
   if (raw.length > 6) out += "-" + raw.slice(6, 18);  // file-id half (variable)
   e.target.value = out.slice(0, 20);
 });
+
+// ── Settings screen ───────────────────────────────────────────
+
+async function loadSettingsScreen() {
+  const paired = await invoke("get_pairing_status_cmd");
+  const statusEl = document.getElementById("pairing-status");
+  statusEl.textContent = paired ? "Status: Paired" : "Status: Not paired";
+  statusEl.className = "pairing-status " + (paired ? "paired" : "unpaired");
+  if (paired) {
+    document.getElementById("passphrase-input").value = "";
+    document.getElementById("passphrase-input").placeholder = "Enter new passphrase to change";
+  }
+}
+
+async function handleSavePassphrase() {
+  const passphrase = document.getElementById("passphrase-input").value.trim();
+  if (!passphrase) {
+    document.getElementById("status-settings").textContent = "Enter a passphrase first.";
+    document.getElementById("status-settings").className = "status error";
+    return;
+  }
+  if (passphrase.length < 8) {
+    document.getElementById("status-settings").textContent = "Passphrase must be at least 8 characters.";
+    document.getElementById("status-settings").className = "status error";
+    return;
+  }
+  try {
+    await invoke("save_passphrase_cmd", { passphrase });
+    await invoke("set_auto_push_cmd", { enabled: document.getElementById("toggle-auto-push").checked });
+    await invoke("set_auto_pull_cmd", { enabled: document.getElementById("toggle-auto-pull").checked });
+    document.getElementById("status-settings").textContent = "Paired! Automatic sync is now active.";
+    document.getElementById("status-settings").className = "status success";
+    await loadSettingsScreen();
+  } catch (err) {
+    document.getElementById("status-settings").textContent = String(err);
+    document.getElementById("status-settings").className = "status error";
+  }
+}
+
+async function handleForgetPassphrase() {
+  try {
+    await invoke("clear_passphrase_cmd");
+    document.getElementById("passphrase-input").value = "";
+    document.getElementById("status-settings").textContent = "Passphrase cleared. Automatic sync disabled.";
+    document.getElementById("status-settings").className = "status";
+    await loadSettingsScreen();
+  } catch (err) {
+    document.getElementById("status-settings").textContent = String(err);
+    document.getElementById("status-settings").className = "status error";
+  }
+}
+
+document.getElementById("btn-save-passphrase").addEventListener("click", handleSavePassphrase);
+document.getElementById("btn-forget-passphrase").addEventListener("click", handleForgetPassphrase);
+document.getElementById("btn-open-settings").addEventListener("click", async () => {
+  await loadSettingsScreen();
+  showScreen("screen-settings");
+});
+document.getElementById("btn-reveal").addEventListener("click", () => {
+  const input = document.getElementById("passphrase-input");
+  const btn = document.getElementById("btn-reveal");
+  const isPassword = input.type === "password";
+  input.type = isPassword ? "text" : "password";
+  btn.textContent = isPassword ? "Hide" : "Show";
+});
+
+// ── First-run detection ───────────────────────────────────────
+
+async function init() {
+  const paired = await invoke("get_pairing_status_cmd");
+  if (!paired) {
+    await loadSettingsScreen();
+    showScreen("screen-settings");
+  } else {
+    showScreen("screen-main");
+  }
+}
+
+document.addEventListener("DOMContentLoaded", init);
