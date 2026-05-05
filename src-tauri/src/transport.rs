@@ -75,6 +75,16 @@ pub async fn download(url: &str) -> Result<Vec<u8>, String> {
     Ok(bytes.to_vec())
 }
 
+/// Extract the Litterbox file ID from a response URL.
+/// e.g. "https://litter.catbox.moe/abc123.bin" → "abc123"
+/// Returns None if the URL can't be parsed.
+pub fn extract_file_id_from_url(url: &str) -> Option<String> {
+    let filename = url.trim().rsplit('/').next()?;
+    let id = filename.strip_suffix(".bin").unwrap_or(filename);
+    if id.is_empty() { return None; }
+    Some(id.to_lowercase())
+}
+
 /// Build a sync code from the Litterbox URL and the pre-generated key hex.
 ///
 /// `https://litter.catbox.moe/abc123.bin` + key `A3F9B2`

@@ -1,6 +1,5 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rand::RngCore;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -20,20 +19,52 @@ struct SyncBundle {
 }
 
 fn checkpoint_wal(db_path: &Path) -> Result<(), String> {
-    if !db_path.exists() {
-        return Err(format!("Database not found: {}", db_path.display()));
-    }
-    let conn = Connection::open(db_path)
-        .map_err(|e| format!("Could not open {}: {e}", db_path.display()))?;
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+    )
+    .map_err(|e| format!("Could not open {}: {e}", db_path.display()))?;
     conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
         .map_err(|e| format!("WAL checkpoint failed: {e}"))
 }
 
-fn extract_file_id(url: &str) -> Option<String> {
-    let filename = url.trim().rsplit('/').next()?;
-    let id = filename.strip_suffix(".bin").unwrap_or(filename);
-    if id.is_empty() { return None; }
-    Some(id.to_uppercase())
+fn collect_sync_files(profile_dir: &std::path::Path) -> Result<HashMap<String, String>, String> {
+    let mut files = HashMap::new();
+    for &name in profile::SYNC_FILES {
+        let path = profile_dir.join(name);
+        if !path.exists() {
+            continue;
+        }
+        let bytes = std::fs::read(&path)
+            .map_err(|e| format!("Could not read {name}: {e}"))?;
+        if bytes.len() > MAX_FILE_BYTES {
+            return Err(format!("{name} exceeds the 5 MB per-file limit"));
+        }
+        files.insert(name.to_string(), BASE64.encode(&bytes));
+    }
+    if files.is_empty() {
+        return Err("No sync files found in the Zen profile folder".into());
+    }
+    Ok(files)
+}
+
+fn write_bundle_files(
+    profile_dir: &std::path::Path,
+    bundle: &SyncBundle,
+) -> Result<Vec<String>, String> {
+    let file_names: Vec<String> = bundle.files.keys().cloned().collect();
+    backup_profile(profile_dir, &file_names)?;
+    let mut written = Vec::new();
+    for (name, b64) in &bundle.files {
+        let bytes = BASE64
+            .decode(b64)
+            .map_err(|e| format!("Failed to decode {name}: {e}"))?;
+        std::fs::write(profile_dir.join(name), &bytes)
+            .map_err(|e| format!("Failed to write {name}: {e}"))?;
+        written.push(name.clone());
+    }
+    written.sort();
+    Ok(written)
 }
 
 /// Export the current Zen profile, encrypt it, upload to Litterbox,
@@ -50,23 +81,7 @@ pub async fn push_profile() -> Result<String, String> {
         checkpoint_wal(&places_path)?;
     }
 
-    // Collect sync files
-    let mut files = HashMap::new();
-    for &name in profile::SYNC_FILES {
-        let path = profile_dir.join(name);
-        if !path.exists() {
-            continue;
-        }
-        let bytes =
-            std::fs::read(&path).map_err(|e| format!("Could not read {name}: {e}"))?;
-        if bytes.len() > MAX_FILE_BYTES {
-            return Err(format!("{name} exceeds the 5 MB per-file limit"));
-        }
-        files.insert(name.to_string(), BASE64.encode(&bytes));
-    }
-    if files.is_empty() {
-        return Err("No sync files found in the Zen profile folder".into());
-    }
+    let files = collect_sync_files(&profile_dir)?;
 
     let created_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -119,20 +134,7 @@ pub async fn pull_profile(sync_code: String) -> Result<Vec<String>, String> {
     let profile_dir = profile::find_zen_profile()
         .ok_or("Zen profile folder not found. Is Zen Browser installed?")?;
 
-    let file_names: Vec<String> = bundle.files.keys().cloned().collect();
-    backup_profile(&profile_dir, &file_names)?;
-
-    let mut written = Vec::new();
-    for (name, b64) in &bundle.files {
-        let bytes = BASE64
-            .decode(b64)
-            .map_err(|e| format!("Failed to decode {name}: {e}"))?;
-        std::fs::write(profile_dir.join(name), &bytes)
-            .map_err(|e| format!("Failed to write {name}: {e}"))?;
-        written.push(name.clone());
-    }
-
-    written.sort();
+    let written = write_bundle_files(&profile_dir, &bundle)?;
     Ok(written)
 }
 
@@ -147,20 +149,7 @@ pub async fn auto_push(passphrase: &str) -> Result<String, String> {
         checkpoint_wal(&places_path)?;
     }
 
-    let mut files = HashMap::new();
-    for &name in profile::SYNC_FILES {
-        let path = profile_dir.join(name);
-        if !path.exists() { continue; }
-        let bytes = std::fs::read(&path)
-            .map_err(|e| format!("Could not read {name}: {e}"))?;
-        if bytes.len() > MAX_FILE_BYTES {
-            return Err(format!("{name} exceeds the 5 MB limit"));
-        }
-        files.insert(name.to_string(), BASE64.encode(&bytes));
-    }
-    if files.is_empty() {
-        return Err("No sync files found in the Zen profile folder".into());
-    }
+    let files = collect_sync_files(&profile_dir)?;
 
     let created_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -172,13 +161,16 @@ pub async fn auto_push(passphrase: &str) -> Result<String, String> {
     let encrypted = crypto::encrypt(&json, passphrase)?;
     let result = transport::upload(encrypted).await?;
 
-    extract_file_id(&result.url)
+    transport::extract_file_id_from_url(&result.url)
         .ok_or_else(|| format!("Could not parse Litterbox URL: {}", result.url))
 }
 
 /// Pull a profile bundle by file ID using a passphrase-derived key.
 /// Used by the daemon for automatic syncing.
 /// Returns the sorted list of written file names.
+///
+/// The caller must verify Zen Browser is not running before invoking —
+/// writing to a live profile can corrupt the database.
 pub async fn auto_pull(file_id: &str, passphrase: &str) -> Result<Vec<String>, String> {
     let url = format!(
         "https://litter.catbox.moe/{}.bin",
@@ -200,20 +192,28 @@ pub async fn auto_pull(file_id: &str, passphrase: &str) -> Result<Vec<String>, S
     let profile_dir = profile::find_zen_profile()
         .ok_or("Zen profile folder not found.")?;
 
-    let file_names: Vec<String> = bundle.files.keys().cloned().collect();
-    backup_profile(&profile_dir, &file_names)?;
-
-    let mut written = Vec::new();
-    for (name, b64) in &bundle.files {
-        let bytes = BASE64.decode(b64)
-            .map_err(|e| format!("Failed to decode {name}: {e}"))?;
-        std::fs::write(profile_dir.join(name), &bytes)
-            .map_err(|e| format!("Failed to write {name}: {e}"))?;
-        written.push(name.clone());
-    }
-
-    written.sort();
+    let written = write_bundle_files(&profile_dir, &bundle)?;
     Ok(written)
+}
+
+/// Copy the listed profile files into a timestamped backup folder.
+/// Silent no-op for files that don't exist yet.
+fn backup_profile(profile_dir: &Path, file_names: &[String]) -> Result<(), String> {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let backup_dir = profile_dir.join(format!("zync-backup-{ts}"));
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| format!("Failed to create backup directory: {e}"))?;
+    for name in file_names {
+        let src = profile_dir.join(name);
+        if src.exists() {
+            std::fs::copy(&src, backup_dir.join(name))
+                .map_err(|e| format!("Failed to backup {name}: {e}"))?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -236,24 +236,4 @@ mod tests {
         drop(conn);
         assert!(checkpoint_wal(&db_path).is_ok());
     }
-}
-
-/// Copy the listed profile files into a timestamped backup folder.
-/// Silent no-op for files that don't exist yet.
-fn backup_profile(profile_dir: &Path, file_names: &[String]) -> Result<(), String> {
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let backup_dir = profile_dir.join(format!("zync-backup-{ts}"));
-    std::fs::create_dir_all(&backup_dir)
-        .map_err(|e| format!("Failed to create backup directory: {e}"))?;
-    for name in file_names {
-        let src = profile_dir.join(name);
-        if src.exists() {
-            std::fs::copy(&src, backup_dir.join(name))
-                .map_err(|e| format!("Failed to backup {name}: {e}"))?;
-        }
-    }
-    Ok(())
 }
