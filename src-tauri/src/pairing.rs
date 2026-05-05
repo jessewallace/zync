@@ -47,7 +47,13 @@ pub fn save_passphrase_cmd(passphrase: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_pairing_status_cmd() -> bool {
-    load_passphrase().map(|p| p.is_some()).unwrap_or(false)
+    match load_passphrase() {
+        Ok(p) => p.is_some(),
+        Err(e) => {
+            eprintln!("ZynC: keychain read failed: {e}");
+            false
+        }
+    }
 }
 
 #[tauri::command]
