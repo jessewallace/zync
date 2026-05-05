@@ -33,7 +33,8 @@ pub fn run() {
             daemon::start(app.handle().clone(), state);
 
             // Close button hides to tray instead of quitting
-            let window = app.get_webview_window("main").unwrap();
+            let window = app.get_webview_window("main")
+                .ok_or("main window not found")?;
             let win = window.clone();
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -45,6 +46,7 @@ pub fn run() {
             // First run: show window so user can enter passphrase
             if !pairing::get_pairing_status_cmd() {
                 window.show().unwrap();
+                let _ = window.set_focus();
             }
 
             // Enable launch-on-login whenever the app runs
@@ -78,7 +80,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let sync_now = MenuItem::with_id(app, "sync_now", "Sync now", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &sep, &sync_now, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &sync_now, &sep, &quit])?;
 
     TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
