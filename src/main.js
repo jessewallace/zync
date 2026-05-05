@@ -250,6 +250,9 @@ async function handleForgetPassphrase() {
 
 document.getElementById("btn-save-passphrase").addEventListener("click", handleSavePassphrase);
 document.getElementById("btn-forget-passphrase").addEventListener("click", handleForgetPassphrase);
+document.getElementById("btn-settings-done").addEventListener("click", () => {
+  showScreen("screen-main");
+});
 document.getElementById("btn-open-settings").addEventListener("click", async () => {
   await loadSettingsScreen();
   showScreen("screen-settings");

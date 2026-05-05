@@ -45,7 +45,7 @@ pub async fn poll_since(
 ) -> Result<Vec<NtfyMessage>, String> {
     let url = match since_id {
         Some(id) => format!("{NTFY_BASE}/{topic}/json?poll=1&since={id}"),
-        None => format!("{NTFY_BASE}/{topic}/json?poll=1&since=all"),
+        None => format!("{NTFY_BASE}/{topic}/json?poll=1&since=now"),
     };
 
     let resp = client()

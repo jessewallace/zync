@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{ntfy, pairing, sync, zen_check};
 
@@ -17,6 +18,7 @@ pub struct DaemonState {
     pub refresh_at: Option<std::time::Instant>,
     /// Previous Zen running state (used for edge detection).
     pub zen_was_running: bool,
+    pub is_pushing: Arc<AtomicBool>,
 }
 
 impl Default for DaemonState {
@@ -29,6 +31,7 @@ impl Default for DaemonState {
             last_synced: None,
             refresh_at: None,
             zen_was_running: false,
+            is_pushing: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -69,30 +72,41 @@ pub async fn manual_sync_now_cmd(
 
 /// Upload the current profile and publish the file ID to ntfy.
 /// Updates `last_synced` and `refresh_at` on success.
+/// Returns immediately (Ok) if another push is already in flight.
 pub async fn trigger_push(
     app: &tauri::AppHandle,
     state: &Arc<Mutex<DaemonState>>,
     passphrase: &str,
 ) -> Result<(), String> {
-    let file_id = sync::auto_push(passphrase).await?;
-    let topic = pairing::derive_ntfy_topic(passphrase);
-    ntfy::publish(&topic, &file_id).await?;
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    {
-        let mut s = state.lock().unwrap();
-        s.last_synced = Some(now);
-        s.refresh_at = Some(
-            std::time::Instant::now() + std::time::Duration::from_secs(55 * 60),
-        );
+    let is_pushing = state.lock().unwrap().is_pushing.clone();
+    if is_pushing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        return Ok(()); // Another push is in flight; skip silently
     }
 
-    show_notification(app, "Profile synced");
-    Ok(())
+    let result = async {
+        let file_id = sync::auto_push(passphrase).await?;
+        let topic = pairing::derive_ntfy_topic(passphrase);
+        ntfy::publish(&topic, &file_id).await?;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        {
+            let mut s = state.lock().unwrap();
+            s.last_synced = Some(now);
+            s.refresh_at = Some(
+                std::time::Instant::now() + std::time::Duration::from_secs(55 * 60),
+            );
+        }
+
+        show_notification(app, "Profile synced");
+        Ok(())
+    }.await;
+
+    is_pushing.store(false, Ordering::SeqCst);
+    result
 }
 
 // ── Background loops ──────────────────────────────────────────────────────────
@@ -249,6 +263,11 @@ async fn refresh_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
         Ok(Some(p)) => p,
         _ => return,
     };
+
+    let auto_push_enabled = state.lock().unwrap().auto_push_enabled;
+    if !auto_push_enabled {
+        return;
+    }
 
     let should_refresh = {
         let s = state.lock().unwrap();
