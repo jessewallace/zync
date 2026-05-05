@@ -165,12 +165,29 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
     };
 
     // Zen just closed
-    if was_running && !zen_running && auto_push_enabled {
-        // Discard any queued pull — our just-closed session wins
-        state.lock().unwrap().pending_file_id = None;
-
-        if let Err(e) = trigger_push(app, state, &passphrase).await {
-            show_notification(app, &format!("Auto-push failed: {e}"));
+    if was_running && !zen_running {
+        if auto_push_enabled {
+            // Push wins — discard any queued pull
+            state.lock().unwrap().pending_file_id = None;
+            if let Err(e) = trigger_push(app, state, &passphrase).await {
+                show_notification(app, &format!("Auto-push failed: {e}"));
+            }
+        } else {
+            // Auto-push disabled — drain any queued pull
+            let pending = state.lock().unwrap().pending_file_id.take();
+            if let Some(file_id) = pending {
+                match sync::auto_pull(&file_id, &passphrase).await {
+                    Ok(_) => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        state.lock().unwrap().last_synced = Some(now);
+                        show_notification(app, "Profile updated from another machine");
+                    }
+                    Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
+                }
+            }
         }
     }
 }
@@ -246,8 +263,8 @@ async fn refresh_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
 
     if zen_check::is_zen_running() {
         let mut s = state.lock().unwrap();
-        if let Some(d) = s.refresh_at {
-            s.refresh_at = Some(d + std::time::Duration::from_secs(5 * 60));
+        if s.refresh_at.is_some() {
+            s.refresh_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(5 * 60));
         }
         return;
     }
