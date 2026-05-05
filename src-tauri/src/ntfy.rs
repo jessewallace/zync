@@ -1,6 +1,12 @@
 const NTFY_BASE: &str = "https://ntfy.sh";
 
-#[derive(serde::Deserialize, Debug)]
+static HTTP_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+
+fn client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(reqwest::Client::new)
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct NtfyMessage {
     pub id: String,
     pub event: String,
@@ -17,8 +23,7 @@ pub fn parse_lines(body: &str) -> Vec<NtfyMessage> {
 
 /// Publish a file ID to the ntfy topic. Fire-and-forget.
 pub async fn publish(topic: &str, file_id: &str) -> Result<(), String> {
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = client()
         .post(format!("{NTFY_BASE}/{topic}"))
         .header("Content-Type", "text/plain")
         .body(file_id.to_string())
@@ -43,12 +48,18 @@ pub async fn poll_since(
         None => format!("{NTFY_BASE}/{topic}/json?poll=1&since=all"),
     };
 
-    let resp = reqwest::get(&url)
+    let resp = client()
+        .get(&url)
+        .send()
         .await
         .map_err(|e| format!("ntfy poll failed: {e}"))?;
 
-    if !resp.status().is_success() {
-        return Err(format!("ntfy returned HTTP {}", resp.status()));
+    let status = resp.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(vec![]);
+    }
+    if !status.is_success() {
+        return Err(format!("ntfy returned HTTP {}", status));
     }
 
     let body = resp.text().await.map_err(|e| format!("ntfy read failed: {e}"))?;
