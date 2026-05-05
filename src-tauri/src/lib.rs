@@ -1,4 +1,5 @@
 mod crypto;
+pub mod daemon;
 mod ntfy;
 mod pairing;
 mod profile;
