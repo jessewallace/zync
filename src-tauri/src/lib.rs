@@ -1,4 +1,5 @@
 mod crypto;
+mod pairing;
 mod profile;
 mod sync;
 mod transport;
