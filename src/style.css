@@ -259,7 +259,7 @@ input[type="text"]::placeholder {
 }
 .passphrase-wrap input {
   flex: 1;
-  background: var(--input-bg);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
