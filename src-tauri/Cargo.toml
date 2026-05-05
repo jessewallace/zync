@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -34,11 +34,15 @@ base64 = "0.22"
 reqwest = { version = "0.12", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 
-# Sync bundle packaging
-zip = "2"
+# Passphrase storage in OS keychain
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
-# Sync code generation
-uuid = { version = "1", features = ["v4"] }
+# SQLite WAL checkpoint
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Tauri plugins
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
