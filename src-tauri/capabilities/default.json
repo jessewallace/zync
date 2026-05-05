@@ -3,6 +3,9 @@
   "description": "Default capability for ZynC",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:tray:default",
+    "notification:default",
+    "autostart:default"
   ]
 }
