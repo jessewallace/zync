@@ -35,7 +35,7 @@ reqwest = { version = "0.12", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 
 # Passphrase storage in OS keychain
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 
 # SQLite WAL checkpoint
 rusqlite = { version = "0.31", features = ["bundled"] }

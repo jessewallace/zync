@@ -2,11 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- Required for WKWebView (Tauri frontend) under hardened runtime -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
   <!-- Outbound network for Litterbox upload/download and ntfy polling -->
   <key>com.apple.security.network.client</key>
-  <true/>
-  <!-- Hardened runtime: allow reading user-selected profile files -->
-  <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
   <!-- Keychain access (keyring crate uses SecKeychainItem API) -->
   <key>keychain-access-groups</key>
