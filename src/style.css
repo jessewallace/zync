@@ -227,13 +227,43 @@ input[type="text"]::placeholder {
 }
 
 /* Settings screen */
+#screen-settings {
+  justify-content: flex-start;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  gap: 0;
+}
+
+.settings-topbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.btn-back {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+  padding: 0;
+}
+.btn-back:hover { color: var(--text); }
+
+.settings-icon {
+  display: block;
+  margin: 0 auto 6px;
+}
 .settings-header {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
+  text-align: center;
 }
 .settings-header h2 {
   font-size: 15px;
   font-weight: 600;
-  margin: 0 0 4px;
+  margin: 0 0 3px;
   color: var(--text);
 }
 .settings-hint {
@@ -243,7 +273,8 @@ input[type="text"]::placeholder {
   line-height: 1.4;
 }
 .settings-row {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  width: 100%;
 }
 .settings-row label {
   display: block;
@@ -267,18 +298,27 @@ input[type="text"]::placeholder {
   padding: 6px 10px;
   outline: none;
   font-family: monospace;
+  text-transform: none;
+  letter-spacing: 0.02em;
 }
 .passphrase-wrap input:focus {
   border-color: var(--accent);
 }
-.passphrase-wrap button {
+.btn-generate {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-muted);
-  font-size: 11px;
-  padding: 6px 10px;
+  padding: 0 10px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s, border-color 0.12s;
+}
+.btn-generate:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 .toggles {
   display: flex;
@@ -298,11 +338,13 @@ input[type="text"]::placeholder {
 .settings-actions {
   display: flex;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
+  width: 100%;
 }
 .pairing-status {
   font-size: 11px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
+  text-align: center;
 }
 .pairing-status.paired { color: #6fcf97; }
 .pairing-status.unpaired { color: var(--text-muted); }
@@ -317,6 +359,7 @@ input[type="text"]::placeholder {
 }
 .btn-link:hover { color: var(--text); }
 .nav-row {
-  margin-top: 10px;
+  margin-top: 8px;
   text-align: right;
+  width: 100%;
 }

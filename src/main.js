@@ -78,7 +78,7 @@ async function handlePush() {
   try {
     const zenOpen = await invoke("is_zen_running");
     if (zenOpen) {
-      setStatus("Zen is still open. Please close it and try again.", "error");
+      setStatus("Zen Browser is still running. Quit it (⌘Q) first, then try again.", "error");
       return;
     }
 
@@ -127,7 +127,7 @@ async function handlePull() {
   try {
     const zenOpen = await invoke("is_zen_running");
     if (zenOpen) {
-      setStatus("Zen is still open. Please close it and try again.", "error");
+      setStatus("Zen Browser is still running. Quit it (⌘Q) first, then try again.", "error");
       return;
     }
 
@@ -197,16 +197,47 @@ document.getElementById("pull-input").addEventListener("input", (e) => {
   e.target.value = out.slice(0, 20);
 });
 
+// ── Passphrase generator ──────────────────────────────────────
+
+const WORDS = [
+  "amber","arctic","atlas","azure","birch","blaze","bloom","brave","brook","cedar",
+  "chill","cliff","cloud","coral","crane","crisp","delta","drift","dusk","eagle",
+  "ember","epoch","fern","flame","fleet","flora","frost","gale","glen","grove",
+  "haven","holly","ivory","jade","karma","knoll","lilac","lunar","maple","mist",
+  "nexus","noble","ocean","onyx","opal","orbit","pearl","pine","prism","quest",
+  "raven","reed","ridge","river","sage","scout","solar","steel","stone","swift",
+  "thorn","tide","tiger","tundra","ultra","vault","viper","vivid","walnut","wheat",
+  "wren","xenon","yield","zenith","zinc","acorn","bison","bluff","cobalt","crest",
+];
+
+function generatePassphrase() {
+  const pick = () => WORDS[Math.floor(Math.random() * WORDS.length)];
+  const num = Math.floor(Math.random() * 90) + 10;
+  return `${pick()}-${pick()}-${pick()}-${num}`;
+}
+
 // ── Settings screen ───────────────────────────────────────────
 
 async function loadSettingsScreen() {
+  // Clear any previous action status
+  document.getElementById("status-settings").textContent = "";
+  document.getElementById("status-settings").className = "status";
+
   const paired = await invoke("get_pairing_status_cmd");
-  const statusEl = document.getElementById("pairing-status");
-  statusEl.textContent = paired ? "Status: Paired" : "Status: Not paired";
-  statusEl.className = "pairing-status " + (paired ? "paired" : "unpaired");
+  const pairingEl = document.getElementById("pairing-status");
   if (paired) {
+    pairingEl.textContent = "Paired! Automatic sync is active.";
+    pairingEl.className = "pairing-status paired";
+    try {
+      const passphrase = await invoke("get_passphrase_cmd");
+      document.getElementById("passphrase-input").value = passphrase ?? "";
+    } catch (_) {
+      document.getElementById("passphrase-input").value = "";
+    }
+  } else {
+    pairingEl.textContent = "";
+    pairingEl.className = "pairing-status unpaired";
     document.getElementById("passphrase-input").value = "";
-    document.getElementById("passphrase-input").placeholder = "Enter new passphrase to change";
   }
 }
 
@@ -257,12 +288,8 @@ document.getElementById("btn-open-settings").addEventListener("click", async () 
   await loadSettingsScreen();
   showScreen("screen-settings");
 });
-document.getElementById("btn-reveal").addEventListener("click", () => {
-  const input = document.getElementById("passphrase-input");
-  const btn = document.getElementById("btn-reveal");
-  const isPassword = input.type === "password";
-  input.type = isPassword ? "text" : "password";
-  btn.textContent = isPassword ? "Hide" : "Show";
+document.getElementById("btn-generate").addEventListener("click", () => {
+  document.getElementById("passphrase-input").value = generatePassphrase();
 });
 
 // ── First-run detection ───────────────────────────────────────

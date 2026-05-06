@@ -61,6 +61,11 @@ pub fn clear_passphrase_cmd() -> Result<(), String> {
     clear_passphrase()
 }
 
+#[tauri::command]
+pub fn get_passphrase_cmd() -> Result<Option<String>, String> {
+    load_passphrase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

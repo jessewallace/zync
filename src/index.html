@@ -62,7 +62,13 @@
 
   <!-- Settings screen -->
   <div class="screen" id="screen-settings">
+    <div class="settings-topbar">
+      <button id="btn-settings-done" class="btn-back">← Back</button>
+    </div>
     <div class="settings-header">
+      <svg class="settings-icon" width="24" height="24" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M16.7205 10.4669L10.467 16.7203C9.69618 17.4859 8.65973 17.9269 7.61285 17.9269C6.65278 17.9269 5.75695 17.5623 5.09722 16.9026C3.66667 15.4738 3.75 13.0623 5.27952 11.5328L8.17014 8.64393L12.4132 12.887C12.4792 12.9495 12.5625 12.9825 12.6493 12.9825C12.7361 12.9825 12.8194 12.9495 12.8872 12.887C13.0174 12.7568 13.0174 12.5432 12.8872 12.413L8.6441 8.16998L11.533 5.27935C12.3038 4.51373 13.3403 4.07275 14.3872 4.07275C15.3472 4.07275 16.2431 4.43734 16.9028 5.09706C18.3333 6.52588 18.25 8.93734 16.7205 10.4669Z" fill="#F76F53"/>
+      </svg>
       <h2>Pairing Setup</h2>
       <p class="settings-hint">Enter the same passphrase on each machine to enable automatic sync.</p>
     </div>
@@ -70,8 +76,15 @@
     <div class="settings-row">
       <label for="passphrase-input">Passphrase</label>
       <div class="passphrase-wrap">
-        <input type="password" id="passphrase-input" placeholder="e.g. purple-fox-mountain-7" autocomplete="off" spellcheck="false" />
-        <button id="btn-reveal" type="button">Show</button>
+        <input type="text" id="passphrase-input" placeholder="e.g. purple-fox-mountain-7" autocomplete="off" spellcheck="false" />
+        <button id="btn-generate" type="button" class="btn-generate" title="Generate passphrase">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
+            <line x1="12" y1="9" x2="12" y2="15"/>
+            <line x1="9.2" y1="10.5" x2="14.8" y2="13.5"/>
+            <line x1="14.8" y1="10.5" x2="9.2" y2="13.5"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -93,9 +106,6 @@
 
     <div id="pairing-status" class="pairing-status"></div>
     <div id="status-settings" class="status"></div>
-    <div class="nav-row">
-      <button id="btn-settings-done" class="btn-link">← Back</button>
-    </div>
   </div>
 
 </div>

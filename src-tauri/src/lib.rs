@@ -66,6 +66,7 @@ pub fn run() {
             pairing::save_passphrase_cmd,
             pairing::get_pairing_status_cmd,
             pairing::clear_passphrase_cmd,
+            pairing::get_passphrase_cmd,
             daemon::get_last_synced_cmd,
             daemon::set_auto_push_cmd,
             daemon::set_auto_pull_cmd,
@@ -82,8 +83,11 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &sync_now, &sep, &quit])?;
 
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
+
     TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(tray_icon)
+        .icon_as_template(true)
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => {
