@@ -132,9 +132,14 @@ async function handlePull() {
     }
 
     setStatus("Pulling profile…", "loading");
-    const files = await invoke("pull_profile", { syncCode: rawCode });
+    const [files, profilePath] = await Promise.all([
+      invoke("pull_profile", { syncCode: rawCode }),
+      invoke("detect_profile_path").catch(() => null),
+    ]);
 
     document.getElementById("pull-files").textContent = files.join("\n");
+    const pathEl = document.getElementById("pull-profile-path");
+    pathEl.textContent = profilePath ? `Profile: ${profilePath}` : "";
     showScreen("screen-pull");
 
   } catch (err) {
@@ -194,7 +199,7 @@ document.getElementById("pull-input").addEventListener("input", (e) => {
   let out = "ZEN";
   if (raw.length > 0) out += "-" + raw.slice(0, 6);   // key half
   if (raw.length > 6) out += "-" + raw.slice(6, 18);  // file-id half (variable)
-  e.target.value = out.slice(0, 20);
+  e.target.value = out.slice(0, 28);
 });
 
 // ── Passphrase generator ──────────────────────────────────────

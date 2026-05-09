@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Files synced by default. Order matters for display.
 pub const SYNC_FILES: &[&str] = &[
@@ -49,18 +49,56 @@ pub fn collect_sync_files() -> Result<Vec<String>, String> {
 
 pub fn find_zen_profile() -> Option<PathBuf> {
     let profiles_dir = zen_profiles_base()?;
-    first_release_profile(&profiles_dir)
-        // Flatpak fallback on Linux
+    eprintln!("[zync] profiles_dir = {}", profiles_dir.display());
+
+    let from_ini = read_active_profile_from_ini(&profiles_dir);
+    eprintln!("[zync] profiles.ini result = {:?}", from_ini);
+
+    let fallback = first_release_profile(&profiles_dir);
+    eprintln!("[zync] release-folder fallback = {:?}", fallback);
+
+    // Primary: read profiles.ini [InstallXXX] section — this is what Zen actually used last.
+    // Fallback: first folder with "release" in name (covers older Zen versions).
+    let result = from_ini
+        .filter(|p| p.is_dir())
+        .or(fallback)
         .or_else(|| {
             #[cfg(target_os = "linux")]
             {
                 let flatpak = dirs::home_dir()?
                     .join(".var/app/app.zen_browser.zen/zen/Profiles");
-                first_release_profile(&flatpak)
+                read_active_profile_from_ini(&flatpak)
+                    .filter(|p| p.is_dir())
+                    .or_else(|| first_release_profile(&flatpak))
             }
             #[cfg(not(target_os = "linux"))]
             None
-        })
+        });
+    eprintln!("[zync] final profile = {:?}", result);
+    result
+}
+
+/// Read `profiles.ini` in the Zen data directory and extract the path recorded in the
+/// first `[InstallXXXXXX]` section. That entry is written by Zen itself each launch and
+/// reflects the profile the browser will open next — more reliable than matching folder names.
+fn read_active_profile_from_ini(profiles_dir: &Path) -> Option<PathBuf> {
+    let zen_dir = profiles_dir.parent()?;
+    let ini_path = zen_dir.join("profiles.ini");
+    let content = std::fs::read_to_string(ini_path).ok()?;
+
+    let mut in_install_section = false;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_install_section = line.to_lowercase().starts_with("[install");
+        } else if in_install_section {
+            if let Some(rel_path) = line.strip_prefix("Default=") {
+                // Value is relative to the zen/ dir, e.g. "Profiles/tcuo77lt.Default (release)"
+                return Some(zen_dir.join(rel_path));
+            }
+        }
+    }
+    None
 }
 
 fn zen_profiles_base() -> Option<PathBuf> {

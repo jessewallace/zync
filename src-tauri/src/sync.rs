@@ -61,6 +61,13 @@ fn write_bundle_files(
             .map_err(|e| format!("Failed to decode {name}: {e}"))?;
         std::fs::write(profile_dir.join(name), &bytes)
             .map_err(|e| format!("Failed to write {name}: {e}"))?;
+        // Remove stale WAL/SHM after writing SQLite files. If a leftover WAL from
+        // the destination's previous session shares page numbers with the new db,
+        // SQLite may apply it on open and partially overwrite the synced data.
+        if name.ends_with(".sqlite") {
+            let _ = std::fs::remove_file(profile_dir.join(format!("{name}-wal")));
+            let _ = std::fs::remove_file(profile_dir.join(format!("{name}-shm")));
+        }
         written.push(name.clone());
     }
     written.sort();
@@ -117,12 +124,21 @@ pub async fn push_profile() -> Result<String, String> {
 pub async fn pull_profile(sync_code: String) -> Result<Vec<String>, String> {
     let (key_hex, url) = transport::parse_sync_code(&sync_code)
         .ok_or("Invalid sync code — expected format ZEN-XXXXXX-YYYYYY")?;
+    eprintln!("[zync] pull: downloading from {url}");
 
     let encrypted = transport::download(&url).await?;
+    eprintln!("[zync] pull: downloaded {} bytes", encrypted.len());
+
     let json = crypto::decrypt(&encrypted, &key_hex)?;
+    eprintln!("[zync] pull: decrypted {} bytes", json.len());
 
     let bundle: SyncBundle = serde_json::from_slice(&json)
         .map_err(|e| format!("Bundle format error: {e}"))?;
+    eprintln!("[zync] pull: bundle v{}, {} files: {:?}",
+        bundle.version,
+        bundle.files.len(),
+        bundle.files.keys().collect::<Vec<_>>()
+    );
 
     if bundle.version != 1 {
         return Err(format!(
@@ -133,8 +149,10 @@ pub async fn pull_profile(sync_code: String) -> Result<Vec<String>, String> {
 
     let profile_dir = profile::find_zen_profile()
         .ok_or("Zen profile folder not found. Is Zen Browser installed?")?;
+    eprintln!("[zync] pull: writing to {}", profile_dir.display());
 
     let written = write_bundle_files(&profile_dir, &bundle)?;
+    eprintln!("[zync] pull: wrote {:?}", written);
     Ok(written)
 }
 
