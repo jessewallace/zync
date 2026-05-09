@@ -232,7 +232,12 @@ fn backup_profile(profile_dir: &Path, file_names: &[String]) -> Result<(), Strin
     for name in file_names {
         let src = profile_dir.join(name);
         if src.exists() {
-            std::fs::copy(&src, backup_dir.join(name))
+            let dest = backup_dir.join(name);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create backup directory for {name}: {e}"))?;
+            }
+            std::fs::copy(&src, dest)
                 .map_err(|e| format!("Failed to backup {name}: {e}"))?;
         }
     }
