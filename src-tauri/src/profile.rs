@@ -7,6 +7,10 @@ pub const SYNC_FILES: &[&str] = &[
     "extensions.json",
     "zen-themes.json",
     "zen-keyboard-shortcuts.json",
+    "zen-sessions.jsonlz4",
+    "zen-live-folders.jsonlz4",
+    "chrome/zen-themes.css",
+    "containers.json",
 ];
 
 /// Files never synced — machine-specific, sensitive, or too large.

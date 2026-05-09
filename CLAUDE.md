@@ -80,10 +80,13 @@ Zen must be CLOSED before push or pull. The app detects this and blocks if Zen i
 | Data | File |
 |---|---|
 | Pinned tabs + workspaces + bookmarks | `places.sqlite` |
-| Workspace names, icons, colors | `places.sqlite` |
+| Workspace names, themes, tab assignments | `zen-sessions.jsonlz4` |
+| Workspace icons + colors (stored as containers) | `containers.json` |
+| Live folders | `zen-live-folders.jsonlz4` |
 | Browser preferences | `prefs.js` |
 | Extensions list | `extensions.json` |
-| Themes and Mods | `zen-themes.json` |
+| Mods config (enabled list) | `zen-themes.json` |
+| Mods CSS (compiled active styles) | `chrome/zen-themes.css` |
 | Keyboard shortcuts | `zen-keyboard-shortcuts.json` |
 
 ### Exclude

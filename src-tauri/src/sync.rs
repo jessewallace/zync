@@ -59,7 +59,12 @@ fn write_bundle_files(
         let bytes = BASE64
             .decode(b64)
             .map_err(|e| format!("Failed to decode {name}: {e}"))?;
-        std::fs::write(profile_dir.join(name), &bytes)
+        let dest = profile_dir.join(name);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory for {name}: {e}"))?;
+        }
+        std::fs::write(&dest, &bytes)
             .map_err(|e| format!("Failed to write {name}: {e}"))?;
         // Remove stale WAL/SHM after writing SQLite files. If a leftover WAL from
         // the destination's previous session shares page numbers with the new db,
