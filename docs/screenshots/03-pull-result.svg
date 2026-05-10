@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="460" viewBox="0 0 420 460">
+  <defs>
+    <style>
+      text { font-family: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Window background -->
+  <rect width="420" height="460" rx="12" fill="#f2f0e3"/>
+
+  <!-- Pull result screen: padding 28px 32px, gap 8px, centered -->
+
+  <!-- pull-result-body: flex column, align center, gap 8px -->
+
+  <!-- Check icon (circle + checkmark path) -->
+  <!-- Centered at x=210, y=110 -->
+  <g>
+    <circle cx="210" cy="110" r="30" fill="#e7f9d9"/>
+    <path d="M 196,110 L 206,121 L 224,99" stroke="#336d3f" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- "Pull successful!" title -->
+  <text x="210" y="128" text-anchor="middle" font-size="32" font-weight="600" fill="#1a1914">Pull successful!</text>
+
+  <!-- Success message box -->
+  <rect x="32" y="142" width="356" height="44" rx="8" fill="#e7f9d9"/>
+  <text x="210" y="169" text-anchor="middle" font-size="14" font-weight="500" fill="#336d3f">Open Zen Browser to see your changes.</text>
+
+  <!-- File list (pull-files) — 12px, line-height 1.8, margin-top 4px -->
+  <text x="210" y="214" text-anchor="middle" font-size="12" fill="#1a1914" line-height="1.8">
+    <tspan x="210" dy="0">places.sqlite</tspan>
+    <tspan x="210" dy="22">zen-sessions.jsonlz4</tspan>
+    <tspan x="210" dy="22">containers.json</tspan>
+    <tspan x="210" dy="22">zen-live-folders.jsonlz4</tspan>
+    <tspan x="210" dy="22">prefs.js</tspan>
+    <tspan x="210" dy="22">extensions.json</tspan>
+  </text>
+
+  <!-- Done button (btn-ghost, auto width — approximated as centered, narrower) -->
+  <rect x="130" y="388" width="160" height="54" rx="10" fill="rgba(0,0,0,0.05)"/>
+  <text x="210" y="424" text-anchor="middle" font-size="24" font-weight="600" fill="#1a1914" letter-spacing="0.04em">Done</text>
+</svg>
