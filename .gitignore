@@ -1,5 +1,6 @@
 /target
 src-tauri/target/
+.claude.json
 node_modules/
 dist/
 gen/
