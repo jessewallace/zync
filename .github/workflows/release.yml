@@ -52,6 +52,9 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Install frontend dependencies
+        run: npm install
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
