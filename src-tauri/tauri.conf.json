@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ZynC",
+  "productName": "Zync",
   "version": "0.1.0",
   "identifier": "app.zync.zensync",
   "build": {
@@ -12,9 +12,9 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "ZynC",
+        "title": "Zync",
         "width": 420,
-        "height": 340,
+        "height": 460,
         "resizable": false,
         "fullscreen": false,
         "center": true,

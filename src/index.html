@@ -3,111 +3,109 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ZynC</title>
+  <title>Zync</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap">
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 <div id="app">
 
-  <!-- ── Main screen ───────────────────────────────────────── -->
+  <!-- ── Main screen (Pull + Pair tabs) ───────────────────── -->
   <div id="screen-main" class="screen active">
-    <div class="logo">Zy<span>n</span>C</div>
+    <header class="app-header">
+      <nav class="tabs">
+        <button class="tab-item active" data-tab="pull">Pull</button>
+        <button class="tab-item" data-tab="pair">Pair</button>
+      </nav>
+    </header>
 
-    <div class="actions">
-      <button id="btn-push" class="btn btn-primary">Push</button>
-
-      <div class="divider">or pull from another machine</div>
-
-      <div class="pull-row">
-        <input
-          id="pull-input"
-          type="text"
-          placeholder="ZEN-XXXX"
-          maxlength="28"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <button id="btn-pull" class="btn btn-secondary">Pull</button>
+    <!-- Pull tab -->
+    <div id="tab-pull" class="tab-content active">
+      <div class="actions">
+        <button id="btn-push" class="btn btn-primary">Upload</button>
+        <div class="divider">or pull from another machine</div>
+        <div class="pull-col">
+          <input
+            id="pull-input"
+            type="text"
+            placeholder="ZEN-XXXX-XXXX"
+            maxlength="28"
+            spellcheck="false"
+            autocomplete="off"
+            aria-label="Sync code"
+          />
+          <button id="btn-pull" class="btn btn-secondary">Pull</button>
+        </div>
       </div>
+      <div id="status-main" class="msg-box hidden" role="status"></div>
     </div>
 
-    <div id="status-main" class="status"></div>
+    <!-- Pair tab -->
+    <div id="tab-pair" class="tab-content">
+      <div id="pair-msg" class="msg-box msg-neutral" role="status" aria-live="polite">Enter the same passphrase on each machine to enable automatic sync.</div>
 
-    <div class="nav-row">
-      <button id="btn-open-settings" class="btn-link">⚙ Settings</button>
+      <div class="field">
+        <label class="field-label" for="passphrase-input">PASSPHRASE</label>
+        <div class="passphrase-wrap">
+          <input type="text" id="passphrase-input" placeholder="e.g. purple-fox-mountain-7" autocomplete="off" spellcheck="false" />
+          <button id="btn-generate" type="button" class="btn btn-secondary" title="Generate passphrase">
+            <!-- Phosphor ArrowCounterClockwise -->
+            <svg width="24" height="24" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+              <path d="M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="toggles">
+        <label class="toggle-label">
+          <input type="checkbox" id="toggle-auto-push" checked />
+          Auto-push when Zen closes
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" id="toggle-auto-pull" checked />
+          Auto-pull when another machine syncs
+        </label>
+      </div>
+
+      <div class="pair-actions">
+        <button id="btn-save-passphrase" class="btn btn-primary">Save &amp; Pair</button>
+        <button id="btn-forget-passphrase" class="btn btn-secondary">Forget</button>
+      </div>
     </div>
   </div>
 
   <!-- ── Push result screen ────────────────────────────────── -->
   <div id="screen-push" class="screen">
-    <div class="result-label">Sync code</div>
-    <div id="sync-code" class="sync-code" title="Click to copy">ZEN-0000</div>
-    <div class="hint">Share this with your other machine</div>
-
-    <div class="push-actions">
-      <button id="btn-copy" class="btn btn-copy">Copy</button>
-      <button id="btn-push-done" class="btn btn-ghost">Done</button>
+    <div class="push-header">
+      <p class="result-title">Sync Code</p>
+      <div class="divider">Share this with your other machine(s)</div>
     </div>
 
-    <div id="countdown" class="countdown">Expires in 60:00</div>
+    <div class="push-body">
+      <div id="sync-code" class="code-display" title="Click to copy">ZEN-0000</div>
+      <div class="push-actions">
+        <button id="btn-copy" class="btn btn-primary">Copy</button>
+        <button id="btn-push-done" class="btn btn-ghost">Done</button>
+      </div>
+    </div>
+
+    <p id="countdown" class="countdown">Expires in <strong id="countdown-time">60:00</strong></p>
   </div>
 
   <!-- ── Pull result screen ────────────────────────────────── -->
   <div id="screen-pull" class="screen">
-    <div class="result-icon">&#10003;</div>
-    <div class="result-label">Sync complete</div>
-    <div id="pull-files" class="pull-files"></div>
-    <div class="pull-hint">Open Zen Browser to see your changes.</div>
-    <div id="pull-profile-path" class="pull-profile-path"></div>
-    <button id="btn-pull-done" class="btn btn-ghost">Done</button>
-  </div>
-
-  <!-- Settings screen -->
-  <div class="screen" id="screen-settings">
-    <div class="settings-topbar">
-      <button id="btn-settings-done" class="btn-back">← Back</button>
-    </div>
-    <div class="settings-header">
-      <svg class="settings-icon" width="24" height="24" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M16.7205 10.4669L10.467 16.7203C9.69618 17.4859 8.65973 17.9269 7.61285 17.9269C6.65278 17.9269 5.75695 17.5623 5.09722 16.9026C3.66667 15.4738 3.75 13.0623 5.27952 11.5328L8.17014 8.64393L12.4132 12.887C12.4792 12.9495 12.5625 12.9825 12.6493 12.9825C12.7361 12.9825 12.8194 12.9495 12.8872 12.887C13.0174 12.7568 13.0174 12.5432 12.8872 12.413L8.6441 8.16998L11.533 5.27935C12.3038 4.51373 13.3403 4.07275 14.3872 4.07275C15.3472 4.07275 16.2431 4.43734 16.9028 5.09706C18.3333 6.52588 18.25 8.93734 16.7205 10.4669Z" fill="#F76F53"/>
+    <div class="pull-result-body">
+      <!-- Phosphor Check -->
+      <svg class="check-icon" width="48" height="48" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+        <path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/>
       </svg>
-      <h2>Pairing Setup</h2>
-      <p class="settings-hint">Enter the same passphrase on each machine to enable automatic sync.</p>
+      <p class="result-title">Pull successful!</p>
+      <div class="msg-box msg-success">Open Zen Browser to see your changes.</div>
+      <p id="pull-files" class="pull-files"></p>
     </div>
-
-    <div class="settings-row">
-      <label for="passphrase-input">Passphrase</label>
-      <div class="passphrase-wrap">
-        <input type="text" id="passphrase-input" placeholder="e.g. purple-fox-mountain-7" autocomplete="off" spellcheck="false" />
-        <button id="btn-generate" type="button" class="btn-generate" title="Generate passphrase">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
-            <line x1="12" y1="9" x2="12" y2="15"/>
-            <line x1="9.2" y1="10.5" x2="14.8" y2="13.5"/>
-            <line x1="14.8" y1="10.5" x2="9.2" y2="13.5"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-row toggles">
-      <label>
-        <input type="checkbox" id="toggle-auto-push" checked />
-        Auto-push when Zen closes
-      </label>
-      <label>
-        <input type="checkbox" id="toggle-auto-pull" checked />
-        Auto-pull when another machine syncs
-      </label>
-    </div>
-
-    <div class="settings-actions">
-      <button id="btn-save-passphrase" class="btn btn-primary">Save &amp; Pair</button>
-      <button id="btn-forget-passphrase" class="btn btn-secondary">Forget Passphrase</button>
-    </div>
-
-    <div id="pairing-status" class="pairing-status"></div>
-    <div id="status-settings" class="status"></div>
+    <button id="btn-pull-done" class="btn btn-ghost">Done</button>
   </div>
 
 </div>

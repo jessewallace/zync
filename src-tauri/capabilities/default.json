@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capability for ZynC",
+  "description": "Default capability for Zync",
   "windows": ["main"],
   "permissions": [
     "core:default",

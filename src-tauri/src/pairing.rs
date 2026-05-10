@@ -50,7 +50,7 @@ pub fn get_pairing_status_cmd() -> bool {
     match load_passphrase() {
         Ok(p) => p.is_some(),
         Err(e) => {
-            eprintln!("ZynC: keychain read failed: {e}");
+            eprintln!("Zync: keychain read failed: {e}");
             false
         }
     }

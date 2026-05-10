@@ -47,7 +47,7 @@ pub fn encrypt(data: &[u8], key_hex: &str) -> Result<Vec<u8>, String> {
 /// Decrypt data produced by `encrypt`. Expects `[nonce (12 B) || ciphertext+tag]`.
 pub fn decrypt(data: &[u8], key_hex: &str) -> Result<Vec<u8>, String> {
     if data.len() < NONCE_LEN {
-        return Err("Payload too short — not a valid ZynC bundle".into());
+        return Err("Payload too short — not a valid Zync bundle".into());
     }
     let (nonce_bytes, ciphertext) = data.split_at(NONCE_LEN);
 

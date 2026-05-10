@@ -77,7 +77,7 @@ pub fn run() {
 }
 
 fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let open = MenuItem::with_id(app, "open", "Open ZynC", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Zync", true, None::<&str>)?;
     let sync_now = MenuItem::with_id(app, "sync_now", "Sync now", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;

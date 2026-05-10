@@ -297,5 +297,5 @@ async fn refresh_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
 
 fn show_notification(app: &tauri::AppHandle, body: &str) {
     use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder().title("ZynC").body(body).show();
+    let _ = app.notification().builder().title("Zync").body(body).show();
 }

@@ -7,36 +7,70 @@ function showScreen(id) {
   document.getElementById(id).classList.add("active");
 }
 
-function setStatus(msg, type = "") {
+function showTab(name) {
+  document.querySelectorAll(".tab-item").forEach((t) => {
+    t.classList.toggle("active", t.dataset.tab === name);
+  });
+  document.querySelectorAll(".tab-content").forEach((c) => {
+    c.classList.toggle("active", c.id === `tab-${name}`);
+  });
+}
+
+// ── Status helpers ────────────────────────────────────────────
+
+function setStatus(msg, type = "neutral") {
   const el = document.getElementById("status-main");
+  if (!msg) {
+    el.classList.add("hidden");
+    el.textContent = "";
+    return;
+  }
+  el.classList.remove("hidden", "msg-neutral", "msg-error", "msg-success");
+  el.classList.add(type === "error" ? "msg-error" : type === "success" ? "msg-success" : "msg-neutral");
   el.textContent = msg;
-  el.className = "status" + (type ? ` ${type}` : "");
+}
+
+function setPairMsg(msg, type = "neutral") {
+  const el = document.getElementById("pair-msg");
+  el.classList.remove("msg-neutral", "msg-error", "msg-success");
+  el.classList.add(type === "error" ? "msg-error" : type === "success" ? "msg-success" : "msg-neutral");
+  el.textContent = msg;
 }
 
 function setLoading(loading) {
   document.getElementById("btn-push").disabled = loading;
   document.getElementById("btn-pull").disabled = loading;
   document.getElementById("pull-input").disabled = loading;
+  document.getElementById("status-main").classList.toggle("is-loading", loading);
 }
 
 // ── Countdown timer ───────────────────────────────────────────
 
 let countdownInterval = null;
+let wasUrgent = false;
 
 function startCountdown(seconds) {
-  const el = document.getElementById("countdown");
+  const countdownEl = document.getElementById("countdown");
+  const timeEl = document.getElementById("countdown-time");
+  wasUrgent = false;
 
   function tick(remaining) {
     if (remaining <= 0) {
       clearInterval(countdownInterval);
-      el.textContent = "Expired";
-      el.classList.add("urgent");
+      timeEl.textContent = "Expired";
+      countdownEl.classList.add("urgent");
       return;
     }
     const m = String(Math.floor(remaining / 60)).padStart(2, "0");
     const s = String(remaining % 60).padStart(2, "0");
-    el.textContent = `Expires in ${m}:${s}`;
-    el.classList.toggle("urgent", remaining <= 120);
+    timeEl.textContent = `${m}:${s}`;
+    const isUrgent = remaining <= 300;
+    if (isUrgent && !wasUrgent) {
+      countdownEl.classList.add("urgent-enter");
+      countdownEl.addEventListener("animationend", () => countdownEl.classList.remove("urgent-enter"), { once: true });
+    }
+    wasUrgent = isUrgent;
+    countdownEl.classList.toggle("urgent", isUrgent);
   }
 
   tick(seconds);
@@ -57,7 +91,6 @@ function stopCountdown() {
 
 function copyText(text) {
   navigator.clipboard.writeText(text).catch(() => {
-    // Fallback for environments where clipboard API isn't available
     const ta = document.createElement("textarea");
     ta.value = text;
     ta.style.position = "fixed";
@@ -73,7 +106,7 @@ function copyText(text) {
 
 async function handlePush() {
   setLoading(true);
-  setStatus("Checking if Zen is running…", "loading");
+  setStatus("Making sure Zen is closed…");
 
   try {
     const zenOpen = await invoke("is_zen_running");
@@ -82,18 +115,20 @@ async function handlePush() {
       return;
     }
 
-    setStatus("Detecting profile…", "loading");
-    const profilePath = await invoke("detect_profile_path");
-    console.log("Profile path:", profilePath);
+    setStatus("Finding your profile…");
+    await invoke("detect_profile_path");
 
-    setStatus("Pushing profile…", "loading");
+    setStatus("Encrypting and uploading…");
     const syncCode = await invoke("push_profile");
 
     stopCountdown();
-    document.getElementById("sync-code").textContent = syncCode;
-    document.getElementById("sync-code").classList.remove("copied");
-    document.getElementById("btn-copy").classList.remove("copied");
-    document.getElementById("btn-copy").textContent = "Copy";
+    const codeEl = document.getElementById("sync-code");
+    const copyBtn = document.getElementById("btn-copy");
+    codeEl.textContent = syncCode;
+    codeEl.classList.remove("copied");
+    copyBtn.textContent = "Copy";
+    copyBtn.classList.remove("copied");
+    setStatus("");
     showScreen("screen-push");
     startCountdown(3600); // 1 hour
 
@@ -111,7 +146,7 @@ async function handlePull() {
   const rawCode = input.value.trim().toUpperCase();
 
   if (!rawCode) {
-    setStatus("Enter a sync code (e.g. ZEN-4829)", "warning");
+    setStatus("Enter a sync code (e.g. ZEN-A3F9B2-ABC123)", "error");
     input.focus();
     return;
   }
@@ -122,7 +157,7 @@ async function handlePull() {
   }
 
   setLoading(true);
-  setStatus("Checking if Zen is running…", "loading");
+  setStatus("Making sure Zen is closed…");
 
   try {
     const zenOpen = await invoke("is_zen_running");
@@ -131,15 +166,11 @@ async function handlePull() {
       return;
     }
 
-    setStatus("Pulling profile…", "loading");
-    const [files, profilePath] = await Promise.all([
-      invoke("pull_profile", { syncCode: rawCode }),
-      invoke("detect_profile_path").catch(() => null),
-    ]);
+    setStatus("Downloading and decrypting…");
+    const files = await invoke("pull_profile", { syncCode: rawCode });
 
-    document.getElementById("pull-files").textContent = files.join("\n");
-    const pathEl = document.getElementById("pull-profile-path");
-    pathEl.textContent = profilePath ? `Profile: ${profilePath}` : "";
+    document.getElementById("pull-files").textContent = files.join(", ");
+    setStatus("");
     showScreen("screen-pull");
 
   } catch (err) {
@@ -158,7 +189,16 @@ document.getElementById("pull-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") handlePull();
 });
 
-// Copy on click or button
+// Tab switching
+document.querySelectorAll(".tab-item").forEach((tab) => {
+  tab.addEventListener("click", async () => {
+    const name = tab.dataset.tab;
+    showTab(name);
+    if (name === "pair") await loadPairTab();
+  });
+});
+
+// Copy sync code
 function doCopy() {
   const code = document.getElementById("sync-code").textContent;
   copyText(code);
@@ -167,6 +207,8 @@ function doCopy() {
   const codeEl = document.getElementById("sync-code");
   btn.textContent = "Copied!";
   btn.classList.add("copied");
+  codeEl.classList.remove("copied");
+  void codeEl.offsetWidth;
   codeEl.classList.add("copied");
   setTimeout(() => {
     btn.textContent = "Copy";
@@ -181,25 +223,31 @@ document.getElementById("btn-copy").addEventListener("click", doCopy);
 document.getElementById("btn-push-done").addEventListener("click", () => {
   stopCountdown();
   showScreen("screen-main");
-  setStatus("");
+  showTab("pull");
 });
 
 document.getElementById("btn-pull-done").addEventListener("click", () => {
   showScreen("screen-main");
+  showTab("pull");
   document.getElementById("pull-input").value = "";
   setStatus("");
 });
 
-// Auto-format pull input into ZEN-XXXXXX-YYYYYY as user types.
+// Auto-format pull input into ZEN-XXXXXX-YYYYYY as user types
 document.getElementById("pull-input").addEventListener("input", (e) => {
   let raw = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  // Strip the ZEN prefix if the user typed it so we work with just the payload
   if (raw.startsWith("ZEN")) raw = raw.slice(3);
-  // Reconstruct with dashes
   let out = "ZEN";
-  if (raw.length > 0) out += "-" + raw.slice(0, 6);   // key half
-  if (raw.length > 6) out += "-" + raw.slice(6, 18);  // file-id half (variable)
+  if (raw.length > 0) out += "-" + raw.slice(0, 6);
+  if (raw.length > 6) out += "-" + raw.slice(6, 18);
   e.target.value = out.slice(0, 28);
+
+  if (/^ZEN-[A-Z0-9]{4,8}-[A-Z0-9]{4,12}$/.test(e.target.value)) {
+    e.target.classList.remove("code-valid-flash");
+    void e.target.offsetWidth;
+    e.target.classList.add("code-valid-flash");
+    e.target.addEventListener("animationend", () => e.target.classList.remove("code-valid-flash"), { once: true });
+  }
 });
 
 // ── Passphrase generator ──────────────────────────────────────
@@ -221,18 +269,12 @@ function generatePassphrase() {
   return `${pick()}-${pick()}-${pick()}-${num}`;
 }
 
-// ── Settings screen ───────────────────────────────────────────
+// ── Pair tab ──────────────────────────────────────────────────
 
-async function loadSettingsScreen() {
-  // Clear any previous action status
-  document.getElementById("status-settings").textContent = "";
-  document.getElementById("status-settings").className = "status";
-
+async function loadPairTab() {
   const paired = await invoke("get_pairing_status_cmd");
-  const pairingEl = document.getElementById("pairing-status");
   if (paired) {
-    pairingEl.textContent = "Paired! Automatic sync is active.";
-    pairingEl.className = "pairing-status paired";
+    setPairMsg("Paired! Automatic sync is active.", "success");
     try {
       const passphrase = await invoke("get_passphrase_cmd");
       document.getElementById("passphrase-input").value = passphrase ?? "";
@@ -240,8 +282,7 @@ async function loadSettingsScreen() {
       document.getElementById("passphrase-input").value = "";
     }
   } else {
-    pairingEl.textContent = "";
-    pairingEl.className = "pairing-status unpaired";
+    setPairMsg("Enter the same passphrase on each machine to enable automatic sync.");
     document.getElementById("passphrase-input").value = "";
   }
 }
@@ -249,25 +290,25 @@ async function loadSettingsScreen() {
 async function handleSavePassphrase() {
   const passphrase = document.getElementById("passphrase-input").value.trim();
   if (!passphrase) {
-    document.getElementById("status-settings").textContent = "Enter a passphrase first.";
-    document.getElementById("status-settings").className = "status error";
+    setPairMsg("Enter a passphrase first.", "error");
     return;
   }
   if (passphrase.length < 8) {
-    document.getElementById("status-settings").textContent = "Passphrase must be at least 8 characters.";
-    document.getElementById("status-settings").className = "status error";
+    setPairMsg("Passphrase must be at least 8 characters.", "error");
     return;
   }
   try {
     await invoke("save_passphrase_cmd", { passphrase });
     await invoke("set_auto_push_cmd", { enabled: document.getElementById("toggle-auto-push").checked });
     await invoke("set_auto_pull_cmd", { enabled: document.getElementById("toggle-auto-pull").checked });
-    document.getElementById("status-settings").textContent = "Paired! Automatic sync is now active.";
-    document.getElementById("status-settings").className = "status success";
-    await loadSettingsScreen();
+    await loadPairTab();
+    const pairMsg = document.getElementById("pair-msg");
+    pairMsg.classList.remove("pair-bounce");
+    void pairMsg.offsetWidth;
+    pairMsg.classList.add("pair-bounce");
+    pairMsg.addEventListener("animationend", () => pairMsg.classList.remove("pair-bounce"), { once: true });
   } catch (err) {
-    document.getElementById("status-settings").textContent = String(err);
-    document.getElementById("status-settings").className = "status error";
+    setPairMsg(String(err), "error");
   }
 }
 
@@ -275,37 +316,38 @@ async function handleForgetPassphrase() {
   try {
     await invoke("clear_passphrase_cmd");
     document.getElementById("passphrase-input").value = "";
-    document.getElementById("status-settings").textContent = "Passphrase cleared. Automatic sync disabled.";
-    document.getElementById("status-settings").className = "status";
-    await loadSettingsScreen();
+    await loadPairTab();
   } catch (err) {
-    document.getElementById("status-settings").textContent = String(err);
-    document.getElementById("status-settings").className = "status error";
+    setPairMsg(String(err), "error");
   }
 }
 
 document.getElementById("btn-save-passphrase").addEventListener("click", handleSavePassphrase);
 document.getElementById("btn-forget-passphrase").addEventListener("click", handleForgetPassphrase);
-document.getElementById("btn-settings-done").addEventListener("click", () => {
-  showScreen("screen-main");
-});
-document.getElementById("btn-open-settings").addEventListener("click", async () => {
-  await loadSettingsScreen();
-  showScreen("screen-settings");
-});
 document.getElementById("btn-generate").addEventListener("click", () => {
   document.getElementById("passphrase-input").value = generatePassphrase();
+  const btn = document.getElementById("btn-generate");
+  btn.classList.remove("spinning");
+  void btn.offsetWidth;
+  btn.classList.add("spinning");
+  btn.addEventListener("animationend", () => btn.classList.remove("spinning"), { once: true });
 });
 
-// ── First-run detection ───────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────
 
 async function init() {
+  console.log(
+    "%cZync",
+    "font-size:20px;font-weight:700;color:#f76f53;font-family:'Bricolage Grotesque',system-ui,sans-serif",
+    "\nSync your Zen Browser profile between machines.\nBuilt with Tauri · Rust · vanilla JS."
+  );
   const paired = await invoke("get_pairing_status_cmd");
+  showScreen("screen-main");
   if (!paired) {
-    await loadSettingsScreen();
-    showScreen("screen-settings");
+    await loadPairTab();
+    showTab("pair");
   } else {
-    showScreen("screen-main");
+    showTab("pull");
   }
 }
 

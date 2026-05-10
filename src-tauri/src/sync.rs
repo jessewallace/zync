@@ -147,7 +147,7 @@ pub async fn pull_profile(sync_code: String) -> Result<Vec<String>, String> {
 
     if bundle.version != 1 {
         return Err(format!(
-            "Unsupported bundle version {} — update ZynC to pull this profile",
+            "Unsupported bundle version {} — update Zync to pull this profile",
             bundle.version
         ));
     }
@@ -207,7 +207,7 @@ pub async fn auto_pull(file_id: &str, passphrase: &str) -> Result<Vec<String>, S
 
     if bundle.version != 1 {
         return Err(format!(
-            "Unsupported bundle version {} — update ZynC",
+            "Unsupported bundle version {} — update Zync",
             bundle.version
         ));
     }

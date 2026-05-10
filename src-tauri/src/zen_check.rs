@@ -24,7 +24,7 @@ pub fn is_zen_running() -> bool {
         if !(is_zen && !is_subprocess) {
             return false;
         }
-        // Only block if Zen belongs to the same user account as ZynC.
+        // Only block if Zen belongs to the same user account as Zync.
         // If UIDs can't be resolved, default to false — don't block on uncertainty.
         match (&my_uid, p.user_id()) {
             (Some(mine), Some(theirs)) => mine == theirs,
