@@ -20,9 +20,9 @@
 
 ## Screenshots
 
-| Main | Push result | Pull result |
-|:---:|:---:|:---:|
-| ![Main screen](docs/screenshots/01-main.svg) | ![Push result](docs/screenshots/02-push-result.svg) | ![Pull result](docs/screenshots/03-pull-result.svg) |
+| Single Profile Push | Pair/Sync Profiles |
+|:---:|:---:|
+| ![Main screen](docs/screenshots/main.png) | ![Push result](docs/screenshots/pair.png) |
 
 ---
 
