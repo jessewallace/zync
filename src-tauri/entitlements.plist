@@ -8,10 +8,5 @@
   <!-- Outbound network for Litterbox upload/download and ntfy polling -->
   <key>com.apple.security.network.client</key>
   <true/>
-  <!-- Keychain access (keyring crate uses SecKeychainItem API) -->
-  <key>keychain-access-groups</key>
-  <array>
-    <string>$(AppIdentifierPrefix)app.zync.zensync</string>
-  </array>
 </dict>
 </plist>
