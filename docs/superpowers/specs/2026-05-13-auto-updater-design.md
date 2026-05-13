@@ -71,11 +71,42 @@ After the app starts, spawn a background task that:
 4. Sleeps 24 hours and repeats
 
 When the user clicks "Install update" in the tray:
-1. Retrieves the stored `Update` from the shared state
-2. Calls `update.download_and_install(|_, _| {}, || {}).await`
-3. App restarts automatically after install
+1. Opens the Zync window (if hidden) and emits an `update-available` event to the frontend carrying `{ version, notes }`
+2. The frontend renders an update dialog overlaid on the current screen (see UI section below)
+3. If the user clicks **Install**: calls `update.download_and_install(|_, _| {}, || {}).await` via a new `install_update` Tauri command; app restarts automatically
+4. If the user clicks **Later**: dismisses the dialog; the tray item remains for next time
 
-### 6. `release.yml`
+### 6. Update dialog UI
+
+An overlay rendered in `index.html` / `main.js`, shown only when the `update-available` event fires. Styled to match the existing dark Zync aesthetic.
+
+Layout:
+```
+┌─────────────────────────────────┐
+│  Zync 1.2.0 is available        │
+│  You have 1.1.0                 │
+│                                 │
+│  ─────────────────────────────  │
+│  • Fixed profile detection on   │
+│    macOS Sequoia                │
+│  • Improved sync reliability    │
+│                                 │
+│        [Later]  [Install & Restart] │
+└─────────────────────────────────┘
+```
+
+- Release notes come from the `notes` field in `latest.json`, which `tauri-action` populates from the GitHub release body
+- The dialog replaces the current tab content (not a separate window); the existing tabs are hidden while it's shown
+- "Install & Restart" triggers the `install_update` command; "Later" hides the overlay
+
+### 7. New Tauri command: `install_update`
+
+A `#[tauri::command]` in `lib.rs` that:
+1. Retrieves the stored `Update` from shared state
+2. Calls `update.download_and_install(|_, _| {}, || {}).await`
+3. Returns an error string to the frontend if it fails (frontend then shows the failure notification)
+
+### 8. `release.yml`
 
 Two changes:
 - Set `includeUpdaterJson: true` in the `tauri-action` step
@@ -88,7 +119,7 @@ Two changes:
 ## Error handling
 
 - If the update check network request fails (no internet, GitHub down), log the error and retry at the next 24h interval. No user-facing error.
-- If `download_and_install` fails, show an OS notification: `"Update failed — download Zync manually from github.com/jessewallace/zync/releases"`. Restore the tray menu to its normal state.
+- If `install_update` fails, the command returns an error string; the frontend replaces the dialog with an inline error message: "Update failed — download Zync manually at github.com/jessewallace/zync/releases". The tray item remains.
 
 ---
 
@@ -99,7 +130,8 @@ Two changes:
 | `src-tauri/Cargo.toml` | Add `tauri-plugin-updater = "2"` |
 | `src-tauri/tauri.conf.json` | Add `plugins.updater` block with pubkey + endpoint |
 | `src-tauri/capabilities/default.json` | Add `"updater:default"` permission |
-| `src-tauri/src/lib.rs` | Register plugin, spawn update-check loop, handle tray "Install" item |
+| `src-tauri/src/lib.rs` | Register plugin, spawn update-check loop, handle tray "Install" item, add `install_update` command |
+| `src/index.html` + `src/main.js` + `src/style.css` | Add update dialog overlay |
 | `.github/workflows/release.yml` | `includeUpdaterJson: true`, add `TAURI_SIGNING_PRIVATE_KEY` env var |
 
 No new files or modules. All updater logic is in `lib.rs`.
@@ -108,7 +140,6 @@ No new files or modules. All updater logic is in `lib.rs`.
 
 ## Out of scope
 
-- Release notes shown in the update notification (Tauri's updater can fetch these from the manifest but adds complexity for minimal gain)
 - Rollback / version pinning
 - Differential/delta updates
 - "Check for updates" manual menu item (not needed given 24h auto-check)
