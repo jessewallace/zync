@@ -6,8 +6,6 @@ use std::path::Path;
 
 use crate::{crypto, profile, transport};
 
-const MAX_FILE_BYTES: usize = 5 * 1024 * 1024; // 5 MB
-
 /// In-memory payload that is serialized → encrypted → uploaded.
 /// File contents are base64-encoded to survive JSON round-trips.
 #[derive(Serialize, Deserialize)]
@@ -37,9 +35,6 @@ fn collect_sync_files(profile_dir: &std::path::Path) -> Result<HashMap<String, S
         }
         let bytes = std::fs::read(&path)
             .map_err(|e| format!("Could not read {name}: {e}"))?;
-        if bytes.len() > MAX_FILE_BYTES {
-            return Err(format!("{name} exceeds the 5 MB per-file limit"));
-        }
         files.insert(name.to_string(), BASE64.encode(&bytes));
     }
     if files.is_empty() {
