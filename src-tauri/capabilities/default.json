@@ -6,6 +6,7 @@
     "core:default",
     "core:tray:default",
     "notification:default",
-    "autostart:default"
+    "autostart:default",
+    "updater:default"
   ]
 }
