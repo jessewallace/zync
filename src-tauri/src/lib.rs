@@ -11,12 +11,31 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
+#[allow(unused_imports)]
+use tauri_plugin_updater::UpdaterExt;
+
+struct UpdateStore {
+    update: tokio::sync::Mutex<Option<tauri_plugin_updater::Update>>,
+    version: std::sync::Mutex<Option<String>>,
+    notes: std::sync::Mutex<Option<String>>,
+}
+
+impl UpdateStore {
+    fn new() -> Self {
+        Self {
+            update: tokio::sync::Mutex::new(None),
+            version: std::sync::Mutex::new(None),
+            notes: std::sync::Mutex::new(None),
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -28,6 +47,9 @@ pub fn run() {
             // Shared daemon state — managed so Tauri commands can access it
             let state = Arc::new(Mutex::new(daemon::DaemonState::default()));
             app.manage(state.clone());
+
+            let update_store = std::sync::Arc::new(UpdateStore::new());
+            app.manage(update_store.clone());
 
             // Start background daemon
             daemon::start(app.handle().clone(), state);
@@ -85,7 +107,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))?;
 
-    TrayIconBuilder::new()
+    TrayIconBuilder::with_id("zync-tray")
         .icon(tray_icon)
         .icon_as_template(true)
         .menu(&menu)
@@ -103,6 +125,22 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     if let Err(e) = daemon::manual_sync_now_cmd(app.clone(), state).await {
                         eprintln!("Manual sync failed: {e}");
                     }
+                });
+            }
+            "install_update" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                    let store = app.state::<std::sync::Arc<UpdateStore>>();
+                    let version = store.version.lock().unwrap().clone().unwrap_or_default();
+                    let notes = store.notes.lock().unwrap().clone().unwrap_or_default();
+                    let _ = app.emit("update-available", serde_json::json!({
+                        "version": version,
+                        "notes": notes,
+                    }));
                 });
             }
             "quit" => app.exit(0),
