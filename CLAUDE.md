@@ -10,19 +10,24 @@ stored in a SQLite database that Firefox Sync does not cover. This app solves th
 
 ## Build Status
 
-**As of 2026-05-04 — core implementation complete, not yet end-to-end tested.**
+**As of 2026-05-12 — fully implemented and shipping signed/notarized releases via GitHub Actions.**
 
 | Module | Status |
 |---|---|
-| UI shell (Push/Pull/status screens) | Done |
+| UI shell (Push/Pull/Pair tabs, settings) | Done |
 | Profile folder auto-detection | Done |
 | Zen running detection | Done |
 | `crypto.rs` — AES-256-GCM + PBKDF2 | Done, unit tested |
 | `transport.rs` — Litterbox upload/download | Done |
-| `sync.rs` — bundle push/pull + backup | Done |
-| WAL checkpoint before push | **TODO** |
+| `sync.rs` — bundle push/pull + backup + WAL checkpoint | Done |
+| `pairing.rs` — shared passphrase in OS keychain, ntfy topic derivation | Done |
+| `ntfy.rs` — ntfy.sh pub/sub adapter | Done |
+| `daemon.rs` — background auto-sync loops | Done |
+| System tray (Open, Sync now, Quit) | Done |
+| Close-to-tray | Done |
+| Launch-on-login (autostart plugin) | Done |
+| macOS code signing + notarization | Done (Developer ID Application: Jesse Wallace J4Z24X9XFQ) |
 | Same-machine round-trip test | **TODO** |
-| Production macOS entitlements | **TODO** |
 | Real app icon | **TODO** |
 
 ### To run in development
@@ -55,20 +60,42 @@ cd src-tauri && cargo test
   `upload()` and `download()` only.
 
 ### Sync Model
-- **Topology:** Star — one machine pushes, any number of machines pull using the same code
-- **Code format:** `ZEN-{6-char-key}-{litterbox-file-id}` e.g. `ZEN-A3F9B2-ABC123`
-  - First part (6 hex chars) is the encryption key derived via PBKDF2
+- **Manual mode (Push/Pull tab):** One machine pushes, generates a `ZEN-KEY-FILEID` code.
+  Any machine enters the code to pull. No pairing required.
+- **Automatic mode (Pair tab):** Machines share a passphrase. The daemon watches for Zen
+  to close, auto-pushes the profile to Litterbox, and publishes the file ID to an ntfy.sh
+  topic derived from the passphrase. Other paired machines poll ntfy every 60 seconds
+  and auto-pull when a new file ID arrives.
+- **Code format (manual):** `ZEN-{6-char-key}-{litterbox-file-id}` e.g. `ZEN-A3F9B2-ABC123`
+  - First part (6 uppercase hex chars) is a random encryption key
   - Second part is the Litterbox file ID, which reconstructs the download URL
-  - No relay server needed — the code encodes both WHERE to fetch and HOW to decrypt
-- **Async:** Push and pull do NOT need to happen simultaneously
-- **Encryption:** AES-256-GCM. Key = PBKDF2-HMAC-SHA256(key_hex, APP_SALT, 100k rounds).
-  Litterbox never sees plaintext. Wire format: `[12-byte nonce][ciphertext+GCM tag]`.
+- **Daemon encryption:** Uses the raw passphrase string as the crypto key (no random component)
+  so receiving machines can decrypt without out-of-band key exchange.
+- **ntfy topic:** SHA-256(passphrase) as 64-char lowercase hex — deterministic, never
+  transmitted in plaintext.
+- **Async:** Push and pull do NOT need to happen simultaneously. The daemon re-uploads
+  every 55 minutes to keep the Litterbox link alive.
+- **Encryption:** AES-256-GCM. Key derived via PBKDF2-HMAC-SHA256 (100k rounds).
+  Wire format: `[12-byte nonce][ciphertext+GCM tag]`.
 
-### Why the code format changed from the original spec
-The original spec said `ZEN-XXXX` (4 chars derived from the Litterbox URL hash). That's a
-circular dependency: you need the URL to derive the code, but you need the code as the
-encryption key before you upload. The two-part format (`ZEN-KEY-FILEID`) resolves this:
-generate the key first, encrypt, upload, then embed the returned file ID in the code.
+### Daemon background loops (daemon.rs)
+Three loops run from app startup:
+1. **Zen watcher (every 5s)** — detects Zen→closed edge and triggers auto-push.
+   If auto-push is disabled and a pull is queued, drains the queued pull instead.
+2. **ntfy poller (every 60s)** — polls the shared ntfy topic for new file IDs.
+   Pulls immediately if Zen is closed; queues the file ID if Zen is open (pulls when Zen closes).
+3. **Refresh timer (every 5min, triggers at 55min mark)** — re-uploads to keep the
+   Litterbox link alive before the 1h expiry. Defers by 5min if Zen is open.
+
+Concurrent push is guarded by `Arc<AtomicBool>` — if a push is already in flight, the
+second trigger is silently dropped.
+
+### Tray and window behavior
+- App starts hidden (window `visible: false`) — shows on first launch only if no passphrase
+  is saved (so new users see the Pair tab immediately).
+- Close button hides to tray instead of quitting.
+- Tray menu: Open Zync | Sync now | — | Quit.
+- Launch-on-login enabled automatically via `tauri-plugin-autostart` (MacosLauncher::LaunchAgent).
 
 ---
 
@@ -110,40 +137,54 @@ NOT `{hash}.release` as older docs suggest. Detection matches any folder contain
 
 ## Core User Flows
 
-### Push (export from this machine)
+### Manual Push (export from this machine)
 1. App detects Zen is closed (warns if open, blocks operation)
-2. App finds profile folder automatically
-3. User clicks **Push**
-4. App reads the five sync files into a `SyncBundle` (files base64-encoded, JSON-serialized)
-5. Generates 3 random bytes → 6 hex chars → encryption key
-6. Encrypts bundle with AES-256-GCM
-7. POSTs encrypted blob to Litterbox (`time=1h`)
-8. Extracts Litterbox file ID from response URL
-9. Displays `ZEN-{key}-{fileId}` prominently with 1-hour countdown
+2. User clicks **Push** tab → **Push**
+3. App runs WAL checkpoint on `places.sqlite`, collects sync files
+4. Generates 3 random bytes → 6 uppercase hex chars → encryption key
+5. Encrypts bundle with AES-256-GCM
+6. POSTs encrypted blob to Litterbox (`time=1h`)
+7. Displays `ZEN-{key}-{fileId}` with 1-hour countdown
 
-### Pull (import to this machine)
-1. User enters sync code on another machine
+### Manual Pull (import to this machine)
+1. User enters sync code on the Pull tab
 2. App parses code → derives download URL and decryption key
-3. Fetches encrypted blob from Litterbox
-4. Decrypts and deserializes `SyncBundle`
-5. Detects Zen is closed (warns if open, blocks operation)
-6. Backs up current profile files to `{profile}/zync-backup-{timestamp}/`
-7. Writes synced files to profile folder
-8. Shows list of written files
+3. Fetches encrypted blob from Litterbox, decrypts, deserializes `SyncBundle`
+4. Detects Zen is closed (warns if open, blocks operation)
+5. Backs up current profile files to `{profile}/zync-backup-{timestamp}/`
+6. Writes synced files; removes stale WAL/SHM files alongside any written `.sqlite`
+7. Shows list of written files
 
-### Multi-machine sync
-- Same push code works for any number of machines while the 1h window is open
-- Each pull is independent — machines don't need to be online simultaneously
+### Automatic sync (paired machines)
+1. User enters a shared passphrase on the Pair tab on both machines; saves it to OS keychain
+2. When Zen closes on machine A, daemon detects the edge, auto-pushes the profile,
+   publishes the Litterbox file ID to the ntfy topic
+3. Machine B polls ntfy every 60s. If Zen is closed it pulls immediately; if open it
+   queues and pulls when Zen closes
+4. Both machines show OS notifications on sync events
 
 ---
 
 ## UI Design
 
-- **Aesthetic:** Zen Browser's design language — dark, minimal, slightly rounded, purple accent
-- **Window size:** 420×340px, not resizable
-- **Screens:** Main (Push + Pull input) → Push result (code + countdown) → Pull result (file list)
-- **No settings screen for v1** — auto-detect everything, sensible defaults
+- **Aesthetic:** Zen Browser's design language — dark, minimal, slightly rounded, purple/coral accent
+- **Window size:** 420×460px, not resizable
+- **Tabs:** Pull | Pair (shown on main screen)
+- **Screens:** Main (tabbed) → Push result (code + countdown) → Pull result (file list)
+- **Pair tab:** Passphrase input with random generator, auto-push/pull toggles, save/forget buttons
 - **Error states:** Plain English inline below the buttons
+
+---
+
+## CI / Release
+
+- **Workflow:** `.github/workflows/release.yml` — triggers on `v*.*.*` tags
+- **Platforms:** macOS (universal arm64+x86_64), Windows, Linux
+- **macOS signing:** Developer ID Application: Jesse Wallace (J4Z24X9XFQ)
+- **Notarization:** Uses `APPLE_ID` + `APPLE_PASSWORD` (app-specific) + `APPLE_TEAM_ID`
+- **Secrets required:** `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
+  `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
+- **Known:** GitHub Actions Node.js 20 deprecation warning (non-breaking until 2026-09-16)
 
 ---
 
@@ -153,24 +194,28 @@ NOT `{hash}.release` as older docs suggest. Detection matches any folder contain
 - Extension settings sync (only the extensions list)
 - Selective workspace sync
 - Sync history or rollback UI (backup is silent)
-- Auto-sync / background daemon
 - Mobile support
 
 ---
 
 ## Key Technical Notes
 
-### SQLite / WAL (TODO before shipping)
+### SQLite / WAL
 - `places.sqlite` is locked while Zen is open — enforced by zen_check
-- When Zen is closed, SQLite may leave a WAL file (`places.sqlite-wal`) with un-checkpointed
-  data. Before reading `places.sqlite` for push, run:
-  `PRAGMA wal_checkpoint(TRUNCATE)` via `rusqlite` to merge WAL into the main file.
-- This is not yet implemented — add to `sync.rs` `push_profile()` before the file read.
+- Before reading `places.sqlite` for push, `sync.rs` runs `PRAGMA wal_checkpoint(TRUNCATE)`
+  via `rusqlite` to merge any un-checkpointed WAL data into the main file
+- After writing `.sqlite` files on pull, stale `-wal` and `-shm` files are deleted to prevent
+  the destination's old WAL from being replayed on top of the synced data
 
-### Sync code security
+### ntfy security model
+- ntfy topic = SHA-256(passphrase) — publicly guessable only if the passphrase is known
+- Only the Litterbox file ID is published to ntfy, never the encryption key
+- An attacker who intercepts ntfy messages gets a file ID they can't decrypt
+- The passphrase (stored in OS keychain) is never transmitted
+
+### Sync code security (manual mode)
 - Key space: 2^24 (16M values) × 100k PBKDF2 rounds ≈ 11h GPU brute-force
 - Litterbox expiry: 1h — the attacker window is shorter than the crack time
-- If higher security is needed in future, increase key bytes from 3 → 4 (32-bit = 11 days)
 
 ### Litterbox API
 ```
@@ -187,12 +232,16 @@ Response: plain text URL e.g. https://litter.catbox.moe/abc123.bin
 ### Tauri v2 specifics
 - `withGlobalTauri: true` in `tauri.conf.json` → JS uses `window.__TAURI__.core.invoke`
 - Rust commands use `#[tauri::command]` + registered in `lib.rs` `invoke_handler`
-- Process detection via `sysinfo` crate (not deprecated Tauri v1 API)
-- No frontend filesystem plugin needed — file I/O is done entirely in Rust commands
-- macOS production builds need `entitlements.plist` with file access rights (not yet added)
+- Process detection via `sysinfo` crate
+- No frontend filesystem plugin — file I/O is done entirely in Rust commands
+- macOS entitlements: `com.apple.security.cs.allow-jit` (WKWebView) +
+  `com.apple.security.network.client` (Litterbox + ntfy)
+- App is NOT sandboxed — keyring works without `keychain-access-groups` entitlement
 
-### Crates to remove (unused)
-`zip` and `uuid` are in `Cargo.toml` but never used — remove before production build.
+### Linux known issue
+The `keyring` crate uses `sync-secret-service` feature which requires `libdbus-1` at
+AppImage build time. May need to switch to `linux-secret-service` (async) to avoid
+native lib linking issues in CI.
 
 ---
 
@@ -203,21 +252,28 @@ zync/
 ├── src-tauri/
 │   ├── src/
 │   │   ├── main.rs          Entry point — calls lib::run()
-│   │   ├── lib.rs           Tauri builder, registers commands
+│   │   ├── lib.rs           Tauri builder, tray setup, daemon spawn, command registration
 │   │   ├── profile.rs       Profile folder detection + file collection
-│   │   ├── sync.rs          Push/pull bundle logic (TODO: WAL checkpoint)
+│   │   ├── sync.rs          Push/pull bundle logic, WAL checkpoint, auto_push/auto_pull
 │   │   ├── transport.rs     Litterbox adapter (upload/download/code parsing)
 │   │   ├── crypto.rs        AES-256-GCM encrypt/decrypt (unit tested)
-│   │   └── zen_check.rs     Detect if Zen process is running
+│   │   ├── zen_check.rs     Detect if Zen process is running
+│   │   ├── pairing.rs       OS keychain passphrase storage, ntfy topic derivation
+│   │   ├── ntfy.rs          ntfy.sh publish + poll_since adapter
+│   │   └── daemon.rs        Background loops: Zen watcher, ntfy poller, refresh timer
 │   ├── capabilities/
-│   │   └── default.json     Tauri v2 capability declarations
+│   │   └── default.json     Tauri v2 capability declarations (tray, notification, autostart)
 │   ├── icons/
 │   │   └── icon.png         Placeholder — replace with real icon
+│   ├── entitlements.plist   macOS hardened runtime entitlements
 │   ├── Cargo.toml
 │   └── tauri.conf.json
 ├── src/
 │   ├── index.html
 │   ├── main.js
 │   └── style.css
+├── .github/
+│   └── workflows/
+│       └── release.yml      CI: builds + signs + notarizes on v* tags
 └── CLAUDE.md
 ```
