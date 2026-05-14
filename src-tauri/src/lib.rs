@@ -54,6 +54,16 @@ pub fn run() {
             // Start background daemon
             daemon::start(app.handle().clone(), state);
 
+            // Spawn update check loop: check on launch (after 5s) then every 24h
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                loop {
+                    check_for_updates(&app_handle).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+                }
+            });
+
             // Close button hides to tray instead of quitting
             let window = app.get_webview_window("main")
                 .ok_or("main window not found")?;
@@ -96,6 +106,66 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+async fn check_for_updates(app: &tauri::AppHandle) {
+    use tauri_plugin_notification::NotificationExt;
+
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => { eprintln!("[updater] init error: {e}"); return; }
+    };
+
+    let update = match updater.check().await {
+        Ok(Some(u)) => u,
+        Ok(None) => return,
+        Err(e) => { eprintln!("[updater] check error: {e}"); return; }
+    };
+
+    let version = update.version.clone();
+    let notes = update.body.clone().unwrap_or_default();
+
+    // Store for later install and tray re-emit
+    let store = app.state::<std::sync::Arc<UpdateStore>>();
+    *store.update.lock().await = Some(update);
+    *store.version.lock().unwrap() = Some(version.clone());
+    *store.notes.lock().unwrap() = Some(notes.clone());
+
+    // OS notification
+    let _ = app.notification()
+        .builder()
+        .title("Zync update available")
+        .body(format!("Zync {} is ready — open the tray to install", version))
+        .show();
+
+    // Emit to frontend (catches it if window is open)
+    let _ = app.emit("update-available", serde_json::json!({
+        "version": version,
+        "notes": notes,
+    }));
+
+    // Rebuild tray menu with install item
+    rebuild_tray_with_update(app, &version);
+}
+
+fn rebuild_tray_with_update(app: &tauri::AppHandle, version: &str) {
+    let Ok(install) = MenuItem::with_id(
+        app,
+        "install_update",
+        format!("Install update ({})", version),
+        true,
+        None::<&str>,
+    ) else { return };
+    let Ok(sep1) = PredefinedMenuItem::separator(app) else { return };
+    let Ok(open) = MenuItem::with_id(app, "open", "Open Zync", true, None::<&str>) else { return };
+    let Ok(sync_now) = MenuItem::with_id(app, "sync_now", "Sync now", true, None::<&str>) else { return };
+    let Ok(sep2) = PredefinedMenuItem::separator(app) else { return };
+    let Ok(quit) = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>) else { return };
+    let Ok(menu) = Menu::with_items(app, &[&install, &sep1, &open, &sync_now, &sep2, &quit]) else { return };
+
+    if let Some(tray) = app.tray_by_id("zync-tray") {
+        let _ = tray.set_menu(Some(menu));
+    }
 }
 
 fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
