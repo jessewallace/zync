@@ -55,6 +55,21 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "
+            const fs = require('fs');
+            const v = '$VERSION';
+            const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            conf.version = v;
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
+            let cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
+            cargo = cargo.replace(/^version = \"[^\"]+\"/m, 'version = \"' + v + '\"');
+            fs.writeFileSync('src-tauri/Cargo.toml', cargo);
+          "
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:

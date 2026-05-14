@@ -350,6 +350,7 @@ async function showUpdateDialog(version, notes) {
   document.getElementById("btn-update-install").disabled = false;
   document.getElementById("btn-update-install").textContent = "Install & Restart";
   document.getElementById("update-dialog").classList.remove("hidden");
+  document.getElementById("btn-update-install").focus();
 }
 
 function hideUpdateDialog() {
@@ -357,6 +358,12 @@ function hideUpdateDialog() {
 }
 
 document.getElementById("btn-update-later").addEventListener("click", hideUpdateDialog);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !document.getElementById("update-dialog").classList.contains("hidden")) {
+    hideUpdateDialog();
+  }
+});
 
 document.getElementById("btn-update-install").addEventListener("click", async () => {
   const btn = document.getElementById("btn-update-install");
