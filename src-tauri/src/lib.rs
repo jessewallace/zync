@@ -13,6 +13,11 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
+
+/// Holds the base tray menu so `rebuild_tray_with_update` can look up existing items.
+struct TrayMenuState {
+    menu: Menu<tauri::Wry>,
+}
 #[allow(unused_imports)]
 use tauri_plugin_updater::UpdaterExt;
 
@@ -42,7 +47,8 @@ pub fn run() {
             None,
         ))
         .setup(|app| {
-            setup_tray(app)?;
+            let tray_menu = setup_tray(app)?;
+            app.manage(Arc::new(TrayMenuState { menu: tray_menu }));
 
             // Shared daemon state — managed so Tauri commands can access it
             let state = Arc::new(Mutex::new(daemon::DaemonState::default()));
@@ -157,18 +163,32 @@ fn rebuild_tray_with_update(app: &tauri::AppHandle, version: &str) {
         None::<&str>,
     ) else { return };
     let Ok(sep1) = PredefinedMenuItem::separator(app) else { return };
-    let Ok(open) = MenuItem::with_id(app, "open", "Open Zync", true, None::<&str>) else { return };
-    let Ok(sync_now) = MenuItem::with_id(app, "sync_now", "Sync now", true, None::<&str>) else { return };
+
+    // Reuse existing menu items by looking them up from the stored base menu.
+    let base_menu = app.state::<Arc<TrayMenuState>>();
+    let Some(open) = base_menu.menu.get("open") else { return };
+    let Some(sync_now) = base_menu.menu.get("sync_now") else { return };
     let Ok(sep2) = PredefinedMenuItem::separator(app) else { return };
-    let Ok(quit) = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>) else { return };
-    let Ok(menu) = Menu::with_items(app, &[&install, &sep1, &open, &sync_now, &sep2, &quit]) else { return };
+    let Some(quit) = base_menu.menu.get("quit") else { return };
+
+    // MenuItemKind implements IsMenuItem, so it can be used directly in with_items.
+    let Ok(menu) = Menu::with_items(app, &[
+        &install as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+        &sep1,
+        &open as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+        &sync_now as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+        &sep2,
+        &quit as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+    ]) else { return };
 
     if let Some(tray) = app.tray_by_id("zync-tray") {
-        let _ = tray.set_menu(Some(menu));
+        if let Err(e) = tray.set_menu(Some(menu)) {
+            eprintln!("[updater] failed to set tray menu: {e}");
+        }
     }
 }
 
-fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let open = MenuItem::with_id(app, "open", "Open Zync", true, None::<&str>)?;
     let sync_now = MenuItem::with_id(app, "sync_now", "Sync now", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
@@ -232,5 +252,5 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
-    Ok(())
+    Ok(menu)
 }
