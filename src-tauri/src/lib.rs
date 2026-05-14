@@ -109,6 +109,7 @@ pub fn run() {
             daemon::set_auto_push_cmd,
             daemon::set_auto_pull_cmd,
             daemon::manual_sync_now_cmd,
+            install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -253,4 +254,18 @@ fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::err
         .build(app)?;
 
     Ok(menu)
+}
+
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    store: tauri::State<'_, std::sync::Arc<UpdateStore>>,
+) -> Result<(), String> {
+    let update = store.update.lock().await.take()
+        .ok_or_else(|| "No pending update".to_string())?;
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
 }
