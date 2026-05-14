@@ -108,6 +108,22 @@
     <button id="btn-pull-done" class="btn btn-ghost">Done</button>
   </div>
 
+  <!-- ── Update dialog overlay ─────────────────────────────── -->
+  <div id="update-dialog" class="update-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="update-title">
+    <div class="update-card">
+      <p class="update-version" id="update-title">Zync <span id="update-version-number"></span> is available</p>
+      <p class="update-current">You have <span id="update-current-version"></span></p>
+      <div class="update-notes-wrap">
+        <div id="update-notes" class="update-notes"></div>
+      </div>
+      <div class="update-actions">
+        <button id="btn-update-later" class="btn btn-ghost">Later</button>
+        <button id="btn-update-install" class="btn btn-primary">Install &amp; Restart</button>
+      </div>
+      <p id="update-error" class="update-error hidden"></p>
+    </div>
+  </div>
+
 </div>
 <script src="main.js"></script>
 </body>

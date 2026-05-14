@@ -333,9 +333,59 @@ document.getElementById("btn-generate").addEventListener("click", () => {
   btn.addEventListener("animationend", () => btn.classList.remove("spinning"), { once: true });
 });
 
+// ── Update dialog ─────────────────────────────────────────
+
+const { listen } = window.__TAURI__.event;
+
+async function showUpdateDialog(version, notes) {
+  document.getElementById("update-version-number").textContent = version;
+  try {
+    const current = await window.__TAURI__.app.getVersion();
+    document.getElementById("update-current-version").textContent = current;
+  } catch (_) {
+    document.getElementById("update-current-version").textContent = "";
+  }
+  document.getElementById("update-notes").textContent = notes || "No release notes provided.";
+  document.getElementById("update-error").classList.add("hidden");
+  document.getElementById("btn-update-install").disabled = false;
+  document.getElementById("btn-update-install").textContent = "Install & Restart";
+  document.getElementById("update-dialog").classList.remove("hidden");
+}
+
+function hideUpdateDialog() {
+  document.getElementById("update-dialog").classList.add("hidden");
+}
+
+document.getElementById("btn-update-later").addEventListener("click", hideUpdateDialog);
+
+document.getElementById("btn-update-install").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-update-install");
+  const errEl = document.getElementById("update-error");
+  btn.disabled = true;
+  btn.textContent = "Downloading…";
+  errEl.classList.add("hidden");
+  try {
+    await invoke("install_update");
+    // App restarts — code below never runs
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = "Install & Restart";
+    errEl.textContent = "Update failed — download manually at github.com/jessewallace/zync/releases";
+    errEl.classList.remove("hidden");
+  }
+});
+
+async function initUpdateListener() {
+  await listen("update-available", (event) => {
+    const { version, notes } = event.payload;
+    showUpdateDialog(version, notes); // async, fire-and-forget is fine here
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────
 
 async function init() {
+  await initUpdateListener();
   console.log(
     "%cZync",
     "font-size:20px;font-weight:700;color:#f76f53;font-family:'Bricolage Grotesque',system-ui,sans-serif",
