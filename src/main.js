@@ -273,6 +273,7 @@ function generatePassphrase() {
 
 function timeAgo(unixSecs) {
   const diff = Math.floor(Date.now() / 1000) - unixSecs;
+  if (diff <= 0)    return "just now";
   if (diff < 60)    return "just now";
   if (diff < 3600)  return `${Math.floor(diff / 60)} min ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
@@ -289,7 +290,13 @@ async function loadPairTab() {
     return;
   }
 
-  const { sync_count, last_synced } = await invoke("get_sync_status_cmd");
+  let sync_count = 0, last_synced = null;
+  try {
+    ({ sync_count, last_synced } = await invoke("get_sync_status_cmd"));
+  } catch (_) {
+    setPairMsg("Paired — waiting for other machines. Check passphrases match if nothing syncs.", "neutral");
+    return;
+  }
 
   if (sync_count === 0) {
     setPairMsg(
