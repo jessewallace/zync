@@ -23,7 +23,6 @@ pub struct DaemonState {
     pub zen_was_running: bool,
     pub is_pushing: Arc<AtomicBool>,
     /// Count of successful auto-pulls received from peers this session. Resets on restart.
-    #[allow(dead_code)]
     pub sync_count: u32,
 }
 
@@ -228,7 +227,11 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        state.lock().unwrap().last_synced = Some(now);
+                        {
+                            let mut s = state.lock().unwrap();
+                            s.last_synced = Some(now);
+                            s.sync_count += 1;
+                        }
                         show_notification(app, "Profile updated from another machine");
                     }
                     Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
@@ -299,7 +302,11 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                state.lock().unwrap().last_synced = Some(now);
+                {
+                    let mut s = state.lock().unwrap();
+                    s.last_synced = Some(now);
+                    s.sync_count += 1;
+                }
                 show_notification(app, "Profile updated from another machine");
             }
             Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
