@@ -105,7 +105,6 @@ pub fn run() {
             pairing::get_pairing_status_cmd,
             pairing::clear_passphrase_cmd,
             pairing::get_passphrase_cmd,
-            daemon::get_last_synced_cmd,
             daemon::get_sync_status_cmd,
             daemon::set_auto_push_cmd,
             daemon::set_auto_pull_cmd,

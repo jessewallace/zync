@@ -45,13 +45,6 @@ impl Default for DaemonState {
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
-#[tauri::command]
-pub fn get_last_synced_cmd(
-    state: tauri::State<Arc<Mutex<DaemonState>>>,
-) -> Option<u64> {
-    state.lock().unwrap().last_synced
-}
-
 #[derive(serde::Serialize)]
 pub struct SyncStatus {
     pub sync_count: u32,

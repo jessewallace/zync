@@ -269,20 +269,44 @@ function generatePassphrase() {
   return `${pick()}-${pick()}-${pick()}-${num}`;
 }
 
+// ── Time helper ───────────────────────────────────────────────
+
+function timeAgo(unixSecs) {
+  const diff = Math.floor(Date.now() / 1000) - unixSecs;
+  if (diff < 60)    return "just now";
+  if (diff < 3600)  return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
+  return `${Math.floor(diff / 86400)} days ago`;
+}
+
 // ── Pair tab ──────────────────────────────────────────────────
 
 async function loadPairTab() {
   const paired = await invoke("get_pairing_status_cmd");
-  if (paired) {
-    setPairMsg("Paired! Automatic sync is active.", "success");
-    try {
-      const passphrase = await invoke("get_passphrase_cmd");
-      document.getElementById("passphrase-input").value = passphrase ?? "";
-    } catch (_) {
-      document.getElementById("passphrase-input").value = "";
-    }
-  } else {
+  if (!paired) {
     setPairMsg("Enter the same passphrase on each machine to enable automatic sync.");
+    document.getElementById("passphrase-input").value = "";
+    return;
+  }
+
+  const { sync_count, last_synced } = await invoke("get_sync_status_cmd");
+
+  if (sync_count === 0) {
+    setPairMsg(
+      "Paired — waiting for other machines. Check passphrases match if nothing syncs.",
+      "neutral"
+    );
+  } else {
+    setPairMsg(
+      `Active — ${sync_count} sync${sync_count === 1 ? "" : "s"}${last_synced ? ` · last ${timeAgo(last_synced)}` : ""}`,
+      "success"
+    );
+  }
+
+  try {
+    const passphrase = await invoke("get_passphrase_cmd");
+    document.getElementById("passphrase-input").value = passphrase ?? "";
+  } catch (_) {
     document.getElementById("passphrase-input").value = "";
   }
 }
