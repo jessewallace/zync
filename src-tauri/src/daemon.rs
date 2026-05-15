@@ -23,6 +23,7 @@ pub struct DaemonState {
     pub zen_was_running: bool,
     pub is_pushing: Arc<AtomicBool>,
     /// Count of successful auto-pulls received from peers this session. Resets on restart.
+    #[allow(dead_code)]
     pub sync_count: u32,
 }
 
