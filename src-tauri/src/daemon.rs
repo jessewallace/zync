@@ -235,6 +235,20 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
             // Both disabled — discard the queue
             state.lock().unwrap().pending_file_id = None;
         }
+        return;
+    }
+
+    // Initial push: if Zen has been closed since we started watching (not the
+    // close edge above) and we haven't pushed yet this session, push now.
+    // This seeds the ntfy topic so other machines can pull on their first poll,
+    // fixing the case where both machines install Zync with Zen already closed.
+    if auto_push_enabled && !zen_running && !was_running {
+        let needs_initial_push = state.lock().unwrap().refresh_at.is_none();
+        if needs_initial_push {
+            if let Err(e) = trigger_push(app, state, &passphrase).await {
+                eprintln!("Zync: initial push failed: {e}");
+            }
+        }
     }
 }
 
