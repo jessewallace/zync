@@ -9,6 +9,7 @@ fn client() -> &'static reqwest::Client {
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct NtfyMessage {
     pub id: String,
+    pub time: u64,
     pub event: String,
     pub message: String,
 }
@@ -37,22 +38,15 @@ pub async fn publish(topic: &str, file_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Poll the ntfy topic for messages newer than `since_id`.
-/// Pass `None` on first call; subsequent calls pass the last seen message ID.
+/// Poll the ntfy topic for messages newer than `since`.
+/// `since` is either a message ID or a Unix timestamp string.
+/// The caller is responsible for advancing `since` between calls
+/// so messages published between polls are never skipped.
 pub async fn poll_since(
     topic: &str,
-    since_id: Option<&str>,
+    since: &str,
 ) -> Result<Vec<NtfyMessage>, String> {
-    let url = match since_id {
-        Some(id) => format!("{NTFY_BASE}/{topic}/json?poll=1&since={id}"),
-        None => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            format!("{NTFY_BASE}/{topic}/json?poll=1&since={now}")
-        }
-    };
+    let url = format!("{NTFY_BASE}/{topic}/json?poll=1&since={since}");
 
     let resp = client()
         .get(&url)
@@ -82,6 +76,7 @@ mod tests {
         let msgs = parse_lines(line);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].id, "abc123");
+        assert_eq!(msgs[0].time, 1234567890);
         assert_eq!(msgs[0].message, "FILEID1");
     }
 
@@ -92,6 +87,16 @@ mod tests {
         let msgs = parse_lines(lines);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].message, "ABC");
+    }
+
+    #[test]
+    fn max_by_time_picks_newest() {
+        let lines = "{\"id\":\"old\",\"time\":100,\"event\":\"message\",\"topic\":\"t\",\"message\":\"OLDER\"}\n\
+                     {\"id\":\"new\",\"time\":200,\"event\":\"message\",\"topic\":\"t\",\"message\":\"NEWER\"}";
+        let msgs = parse_lines(lines);
+        let latest = msgs.iter().max_by_key(|m| m.time).unwrap();
+        assert_eq!(latest.id, "new");
+        assert_eq!(latest.message, "NEWER");
     }
 
     #[test]
