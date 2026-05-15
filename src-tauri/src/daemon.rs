@@ -8,8 +8,11 @@ use crate::{ntfy, pairing, sync, zen_check};
 pub struct DaemonState {
     pub auto_push_enabled: bool,
     pub auto_pull_enabled: bool,
-    /// Last ntfy message ID we processed — used to avoid re-pulling.
+    /// Last ntfy message ID we processed — used as `since` on next poll.
     pub last_ntfy_id: Option<String>,
+    /// Unix timestamp of the end of the last ntfy poll. Used as `since` when
+    /// no message ID exists yet, so messages published between polls are not skipped.
+    pub last_poll_time: u64,
     /// File ID from ntfy that arrived while Zen was open — waiting for Zen to close.
     pub pending_file_id: Option<String>,
     /// Unix timestamp of last successful push or pull.
@@ -19,6 +22,8 @@ pub struct DaemonState {
     /// Previous Zen running state (used for edge detection).
     pub zen_was_running: bool,
     pub is_pushing: Arc<AtomicBool>,
+    /// Count of successful auto-pulls received from peers this session. Resets on restart.
+    pub sync_count: u32,
 }
 
 impl Default for DaemonState {
@@ -27,11 +32,13 @@ impl Default for DaemonState {
             auto_push_enabled: true,
             auto_pull_enabled: true,
             last_ntfy_id: None,
+            last_poll_time: 0,
             pending_file_id: None,
             last_synced: None,
             refresh_at: None,
             zen_was_running: false,
             is_pushing: Arc::new(AtomicBool::new(false)),
+            sync_count: 0,
         }
     }
 }
@@ -116,6 +123,16 @@ pub async fn trigger_push(
 ///   - ntfy poller (every 60 s) — pulls new profiles from other machines
 ///   - Refresh timer (checked every 5 min) — re-uploads to keep link alive
 pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
+    // Initialize last_poll_time to 1 hour ago so the first ntfy poll catches
+    // any push that happened while this machine had Zync closed.
+    {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        state.lock().unwrap().last_poll_time = now.saturating_sub(3600);
+    }
+
     // Zen process watcher (every 5 s)
     {
         let app = app.clone();
@@ -171,11 +188,11 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
 
     let zen_running = zen_check::is_zen_running();
 
-    let (was_running, auto_push_enabled) = {
+    let (was_running, auto_push_enabled, auto_pull_enabled) = {
         let mut s = state.lock().unwrap();
         let was = s.zen_was_running;
         s.zen_was_running = zen_running;
-        (was, s.auto_push_enabled)
+        (was, s.auto_push_enabled, s.auto_pull_enabled)
     };
 
     // Zen just closed
@@ -186,8 +203,8 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
             if let Err(e) = trigger_push(app, state, &passphrase).await {
                 show_notification(app, &format!("Auto-push failed: {e}"));
             }
-        } else {
-            // Auto-push disabled — drain any queued pull
+        } else if auto_pull_enabled {
+            // Auto-push disabled, auto-pull enabled — drain any queued pull
             let pending = state.lock().unwrap().pending_file_id.take();
             if let Some(file_id) = pending {
                 match sync::auto_pull(&file_id, &passphrase).await {
@@ -202,6 +219,9 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                     Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
                 }
             }
+        } else {
+            // Both disabled — discard the queue
+            state.lock().unwrap().pending_file_id = None;
         }
     }
 }
@@ -213,25 +233,41 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         _ => return,
     };
 
-    let (auto_pull_enabled, since_id) = {
+    let since = {
         let s = state.lock().unwrap();
-        (s.auto_pull_enabled, s.last_ntfy_id.clone())
+        if !s.auto_pull_enabled {
+            return;
+        }
+        // Prefer the last message ID (ntfy advances from that point).
+        // Fall back to last_poll_time so messages published between polls are not skipped.
+        s.last_ntfy_id.clone()
+            .unwrap_or_else(|| s.last_poll_time.to_string())
     };
 
-    if !auto_pull_enabled {
-        return;
-    }
+    // Capture the start time BEFORE the HTTP call. If a message is published
+    // during the network round-trip it will have a timestamp >= poll_start,
+    // so the next iteration (using poll_start as `since`) will catch it.
+    let poll_start = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
 
     let topic = pairing::derive_ntfy_topic(&passphrase);
-    let messages = match ntfy::poll_since(&topic, since_id.as_deref()).await {
+    let messages = match ntfy::poll_since(&topic, &since).await {
         Ok(m) => m,
         Err(e) => {
             eprintln!("ntfy poll error: {e}");
+            // Advance last_poll_time even on error so recovery doesn't re-fetch ancient messages.
+            state.lock().unwrap().last_poll_time = poll_start;
             return;
         }
     };
 
-    let Some(latest) = messages.last() else { return };
+    state.lock().unwrap().last_poll_time = poll_start;
+
+    // Use the message with the highest timestamp in case ntfy ever returns
+    // messages out of arrival order (e.g., two machines push simultaneously).
+    let Some(latest) = messages.iter().max_by_key(|m| m.time) else { return };
 
     state.lock().unwrap().last_ntfy_id = Some(latest.id.clone());
 
@@ -298,4 +334,17 @@ async fn refresh_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
 fn show_notification(app: &tauri::AppHandle, body: &str) {
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title("Zync").body(body).show();
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_count_defaults_to_zero() {
+        let state = DaemonState::default();
+        assert_eq!(state.sync_count, 0);
+    }
 }
