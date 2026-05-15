@@ -53,6 +53,20 @@ pub fn get_last_synced_cmd(
     state.lock().unwrap().last_synced
 }
 
+#[derive(serde::Serialize)]
+pub struct SyncStatus {
+    pub sync_count: u32,
+    pub last_synced: Option<u64>,
+}
+
+#[tauri::command]
+pub fn get_sync_status_cmd(
+    state: tauri::State<Arc<Mutex<DaemonState>>>,
+) -> SyncStatus {
+    let s = state.lock().unwrap();
+    SyncStatus { sync_count: s.sync_count, last_synced: s.last_synced }
+}
+
 #[tauri::command]
 pub fn set_auto_push_cmd(enabled: bool, state: tauri::State<Arc<Mutex<DaemonState>>>) {
     state.lock().unwrap().auto_push_enabled = enabled;
