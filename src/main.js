@@ -425,6 +425,19 @@ async function initUpdateListener() {
     const { version, notes } = event.payload;
     showUpdateDialog(version, notes); // async, fire-and-forget is fine here
   });
+  await listen("sync-updated", ({ payload }) => {
+    const isPairTabActive = document.querySelector('[data-tab="pair"]')?.classList.contains("active");
+    if (!isPairTabActive) return;
+    const { sync_count, last_synced } = payload;
+    if (sync_count === 0) {
+      setPairMsg("Paired — waiting for other machines. Check passphrases match if nothing syncs.", "neutral");
+    } else {
+      setPairMsg(
+        `Active — ${sync_count} sync${sync_count === 1 ? "" : "s"}${last_synced ? ` · last ${timeAgo(last_synced)}` : ""}`,
+        "success"
+      );
+    }
+  });
 }
 
 // ── Init ──────────────────────────────────────────────────────
@@ -438,8 +451,8 @@ async function init() {
   );
   const paired = await invoke("get_pairing_status_cmd");
   showScreen("screen-main");
+  await loadPairTab();
   if (!paired) {
-    await loadPairTab();
     showTab("pair");
   } else {
     showTab("pull");

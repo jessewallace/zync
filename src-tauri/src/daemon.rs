@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::Emitter;
 
 use crate::{ntfy, pairing, sync, zen_check};
 
@@ -45,7 +46,7 @@ impl Default for DaemonState {
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 pub struct SyncStatus {
     pub sync_count: u32,
     pub last_synced: Option<u64>,
@@ -221,11 +222,13 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        {
+                        let status = {
                             let mut s = state.lock().unwrap();
                             s.last_synced = Some(now);
                             s.sync_count += 1;
-                        }
+                            SyncStatus { sync_count: s.sync_count, last_synced: s.last_synced }
+                        };
+                        let _ = app.emit("sync-updated", status);
                         show_notification(app, "Profile updated from another machine");
                     }
                     Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
@@ -245,8 +248,10 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
     if auto_push_enabled && !zen_running && !was_running {
         let needs_initial_push = state.lock().unwrap().refresh_at.is_none();
         if needs_initial_push {
-            if let Err(e) = trigger_push(app, state, &passphrase).await {
-                eprintln!("Zync: initial push failed: {e}");
+            eprintln!("[zync] initial push: starting");
+            match trigger_push(app, state, &passphrase).await {
+                Ok(()) => eprintln!("[zync] initial push: ok"),
+                Err(e) => eprintln!("[zync] initial push: failed: {e}"),
             }
         }
     }
@@ -279,6 +284,7 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         .as_secs();
 
     let topic = pairing::derive_ntfy_topic(&passphrase);
+    eprintln!("[zync] ntfy poll: since={since} topic={}...", &topic[..8]);
     let messages = match ntfy::poll_since(&topic, &since).await {
         Ok(m) => m,
         Err(e) => {
@@ -289,6 +295,7 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         }
     };
 
+    eprintln!("[zync] ntfy poll: {} message(s) found", messages.len());
     state.lock().unwrap().last_poll_time = poll_start;
 
     // Use the message with the highest timestamp in case ntfy ever returns
@@ -299,25 +306,33 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
 
     let file_id = latest.message.trim().to_string();
     let zen_running = zen_check::is_zen_running();
+    eprintln!("[zync] ntfy poll: file_id={file_id} zen_running={zen_running}");
 
     if zen_running {
         state.lock().unwrap().pending_file_id = Some(file_id);
         show_notification(app, "New profile available — will pull when Zen closes");
     } else {
+        eprintln!("[zync] auto-pull starting: file_id={file_id}");
         match sync::auto_pull(&file_id, &passphrase).await {
-            Ok(_) => {
+            Ok(written) => {
+                eprintln!("[zync] auto-pull ok: wrote {:?}", written);
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                {
+                let status = {
                     let mut s = state.lock().unwrap();
                     s.last_synced = Some(now);
                     s.sync_count += 1;
-                }
+                    SyncStatus { sync_count: s.sync_count, last_synced: s.last_synced }
+                };
+                let _ = app.emit("sync-updated", status);
                 show_notification(app, "Profile updated from another machine");
             }
-            Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
+            Err(e) => {
+                eprintln!("[zync] auto-pull failed: {e}");
+                show_notification(app, &format!("Auto-pull failed: {e}"));
+            }
         }
     }
 }
