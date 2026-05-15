@@ -185,8 +185,9 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
 
 // ── Tick helpers ──────────────────────────────────────────────────────────────
 
-/// Detect the Zen→closed edge and trigger an auto-push.
-/// Any pending pull is discarded because the just-closed local session wins.
+/// Detect the Zen→closed edge. If auto-push is enabled, triggers a push and
+/// discards any queued pull (local session wins). If auto-push is disabled but
+/// auto-pull is enabled, drains the queued pull instead.
 async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
     let passphrase = match pairing::load_passphrase() {
         Ok(Some(p)) => p,

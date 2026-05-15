@@ -277,7 +277,8 @@ function timeAgo(unixSecs) {
   if (diff < 60)    return "just now";
   if (diff < 3600)  return `${Math.floor(diff / 60)} min ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
-  return `${Math.floor(diff / 86400)} days ago`;
+  const days = Math.floor(diff / 86400);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 // ── Pair tab ──────────────────────────────────────────────────
@@ -295,6 +296,12 @@ async function loadPairTab() {
     ({ sync_count, last_synced } = await invoke("get_sync_status_cmd"));
   } catch (_) {
     setPairMsg("Paired — waiting for other machines. Check passphrases match if nothing syncs.", "neutral");
+    try {
+      const passphrase = await invoke("get_passphrase_cmd");
+      document.getElementById("passphrase-input").value = passphrase ?? "";
+    } catch (_) {
+      document.getElementById("passphrase-input").value = "";
+    }
     return;
   }
 
