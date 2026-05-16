@@ -49,6 +49,7 @@ pub fn run() {
         .setup(|app| {
             let tray_menu = setup_tray(app)?;
             app.manage(Arc::new(TrayMenuState { menu: tray_menu }));
+            setup_native_menu(app)?;
 
             // Shared daemon state — managed so Tauri commands can access it
             let state = Arc::new(Mutex::new(daemon::DaemonState::default()));
@@ -66,7 +67,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 loop {
-                    check_for_updates(&app_handle).await;
+                    check_for_updates(&app_handle, false).await;
                     tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
                 }
             });
@@ -130,7 +131,7 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-async fn check_for_updates(app: &tauri::AppHandle) {
+async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
     use tauri_plugin_notification::NotificationExt;
 
     let updater = match app.updater() {
@@ -140,7 +141,16 @@ async fn check_for_updates(app: &tauri::AppHandle) {
 
     let update = match updater.check().await {
         Ok(Some(u)) => u,
-        Ok(None) => return,
+        Ok(None) => {
+            if manual {
+                let _ = app.notification()
+                    .builder()
+                    .title("Zync is up to date")
+                    .body("You're running the latest version.")
+                    .show();
+            }
+            return;
+        }
         Err(e) => { eprintln!("[updater] check error: {e}"); return; }
     };
 
@@ -244,12 +254,58 @@ fn clear_passphrase_and_cache_cmd(
     Ok(())
 }
 
+fn setup_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+
+    let check_item = MenuItem::with_id(
+        app,
+        "check_updates_native",
+        "Check for Updates\u{2026}",
+        true,
+        None::<&str>,
+    )?;
+
+    let menu = Menu::default(app.handle())?;
+
+    #[cfg(target_os = "macos")]
+    if let Some(MenuItemKind::Submenu(app_submenu)) = menu.items()?.into_iter().next() {
+        // Insert after "About Zync" (position 0)
+        app_submenu.insert(&check_item, 1)?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri::menu::Submenu;
+        let help = Submenu::with_items(
+            app,
+            "Help",
+            true,
+            &[&check_item as &dyn tauri::menu::IsMenuItem<tauri::Wry>],
+        )?;
+        menu.append(&help)?;
+    }
+
+    menu.set_as_app_menu()?;
+
+    app.on_menu_event(|app, event| {
+        if event.id.as_ref() == "check_updates_native" {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                check_for_updates(&app, true).await;
+            });
+        }
+    });
+
+    Ok(())
+}
+
 fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let open = MenuItem::with_id(app, "open", "Open Zync", true, None::<&str>)?;
     let sync_now = MenuItem::with_id(app, "sync_now", "Sync now", true, None::<&str>)?;
+    let check_updates = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &sync_now, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &sync_now, &check_updates, &sep, &quit])?;
 
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))?;
 
@@ -271,6 +327,12 @@ fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::err
                     if let Err(e) = daemon::manual_sync_now_cmd(app.clone(), state).await {
                         eprintln!("Manual sync failed: {e}");
                     }
+                });
+            }
+            "check_updates" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    check_for_updates(&app, true).await;
                 });
             }
             "install_update" => {
