@@ -136,7 +136,17 @@ async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
 
     let updater = match app.updater() {
         Ok(u) => u,
-        Err(e) => { eprintln!("[updater] init error: {e}"); return; }
+        Err(e) => {
+            eprintln!("[updater] init error: {e}");
+            if manual {
+                let _ = app.notification()
+                    .builder()
+                    .title("Update check failed")
+                    .body("Could not check for updates. Please check your internet connection.")
+                    .show();
+            }
+            return;
+        }
     };
 
     let update = match updater.check().await {
@@ -151,7 +161,17 @@ async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
             }
             return;
         }
-        Err(e) => { eprintln!("[updater] check error: {e}"); return; }
+        Err(e) => {
+            eprintln!("[updater] check error: {e}");
+            if manual {
+                let _ = app.notification()
+                    .builder()
+                    .title("Update check failed")
+                    .body("Could not check for updates. Please check your internet connection.")
+                    .show();
+            }
+            return;
+        }
     };
 
     let version = update.version.clone();
@@ -163,14 +183,32 @@ async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
     *store.version.lock().unwrap() = Some(version.clone());
     *store.notes.lock().unwrap() = Some(notes.clone());
 
-    // OS notification
-    let _ = app.notification()
-        .builder()
-        .title("Zync update available")
-        .body(format!("Zync {} is ready — open the tray to install", version))
-        .show();
+    // For manual checks, show the window so the dialog is visible
+    if manual {
+        match app.get_webview_window("main") {
+            Some(w) => {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            None => {
+                eprintln!("[updater] main window not found; falling back to notification");
+                let _ = app.notification()
+                    .builder()
+                    .title("Zync update available")
+                    .body(format!("Zync {} is ready — open the tray to install", version))
+                    .show();
+            }
+        }
+    } else {
+        // Background check: notify via OS notification
+        let _ = app.notification()
+            .builder()
+            .title("Zync update available")
+            .body(format!("Zync {} is ready — open the tray to install", version))
+            .show();
+    }
 
-    // Emit to frontend (catches it if window is open)
+    // Emit to frontend
     let _ = app.emit("update-available", serde_json::json!({
         "version": version,
         "notes": notes,
