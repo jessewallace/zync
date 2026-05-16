@@ -609,6 +609,44 @@ input[type="text"]::placeholder {
 }
 .update-error.hidden { display: none; }
 
+/* ── Keychain primer screen ───────────────────────────────── */
+
+#screen-keychain-primer {
+  align-items: center;
+  justify-content: space-between;
+  padding: 40px 32px 32px;
+}
+
+.primer-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  flex: 1;
+  justify-content: center;
+}
+
+.primer-icon {
+  color: var(--accent);
+}
+
+.primer-text {
+  font-size: 15px;
+  color: var(--text);
+  text-align: center;
+  line-height: 1.6;
+  max-width: 300px;
+}
+
+.primer-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+.primer-actions .btn { width: auto; flex: 1; }
+.primer-actions .btn-primary { flex: 2; }
+
 /* ── Reduced motion ───────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {

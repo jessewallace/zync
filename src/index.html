@@ -108,6 +108,23 @@
     <button id="btn-pull-done" class="btn btn-ghost">Done</button>
   </div>
 
+  <!-- ── Keychain primer screen ────────────────────────────── -->
+  <div id="screen-keychain-primer" class="screen">
+    <div class="primer-body">
+      <!-- Phosphor Lock icon -->
+      <svg class="primer-icon" width="48" height="48" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+        <path d="M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Zm-80-48a24,24,0,1,0-24-24A24,24,0,0,0,128,160Z"/>
+      </svg>
+      <p class="result-title">Secure storage</p>
+      <p class="primer-text">Your passphrase will be stored in your Mac's Keychain. macOS will ask for permission — click <strong>Always Allow</strong> so you're not asked again.</p>
+      <div id="primer-error" class="msg-box msg-error hidden" role="alert" aria-live="polite"></div>
+    </div>
+    <div class="primer-actions">
+      <button id="btn-primer-back" class="btn btn-secondary">Go back</button>
+      <button id="btn-primer-continue" class="btn btn-primary">Yes, continue</button>
+    </div>
+  </div>
+
   <!-- ── Update dialog overlay ─────────────────────────────── -->
   <div id="update-dialog" class="update-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="update-title">
     <div class="update-card">
