@@ -58,6 +58,7 @@ pub fn run() {
             app.manage(update_store.clone());
 
             // Start background daemon
+            let state_for_cache = state.clone();
             daemon::start(app.handle().clone(), state);
 
             // Spawn update check loop: check on launch (after 5s) then every 24h
@@ -86,6 +87,19 @@ pub fn run() {
             if !pairing::is_paired_flag(&data_dir) {
                 window.show().unwrap();
                 let _ = window.set_focus();
+            }
+
+            // Populate passphrase cache for existing users. Runs after the window-show
+            // decision so any keychain prompt appears with the window visible.
+            {
+                let data_dir_for_cache = data_dir.clone();
+                tauri::async_runtime::spawn(async move {
+                    if pairing::is_paired_flag(&data_dir_for_cache) {
+                        if let Ok(Some(p)) = pairing::load_passphrase() {
+                            state_for_cache.lock().unwrap().passphrase = Some(p);
+                        }
+                    }
+                });
             }
 
             // Enable launch-on-login whenever the app runs
