@@ -116,7 +116,7 @@ pub fn run() {
             profile::collect_sync_files,
             sync::push_profile,
             sync::pull_profile,
-            pairing::get_passphrase_cmd,
+            get_cached_passphrase_cmd,
             daemon::get_sync_status_cmd,
             daemon::set_auto_push_cmd,
             daemon::set_auto_pull_cmd,
@@ -202,6 +202,13 @@ fn rebuild_tray_with_update(app: &tauri::AppHandle, version: &str) {
             eprintln!("[updater] failed to set tray menu: {e}");
         }
     }
+}
+
+#[tauri::command]
+fn get_cached_passphrase_cmd(
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Option<String> {
+    state.lock().unwrap().passphrase.clone()
 }
 
 #[tauri::command]

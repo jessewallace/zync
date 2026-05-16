@@ -297,7 +297,7 @@ async function loadPairTab() {
   } catch (_) {
     setPairMsg("Paired — waiting for other machines. Check passphrases match if nothing syncs.", "neutral");
     try {
-      const passphrase = await invoke("get_passphrase_cmd");
+      const passphrase = await invoke("get_cached_passphrase_cmd");
       document.getElementById("passphrase-input").value = passphrase ?? "";
     } catch (_) {
       document.getElementById("passphrase-input").value = "";
@@ -318,7 +318,7 @@ async function loadPairTab() {
   }
 
   try {
-    const passphrase = await invoke("get_passphrase_cmd");
+    const passphrase = await invoke("get_cached_passphrase_cmd");
     document.getElementById("passphrase-input").value = passphrase ?? "";
   } catch (_) {
     document.getElementById("passphrase-input").value = "";

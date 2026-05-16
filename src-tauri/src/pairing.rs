@@ -59,34 +59,6 @@ pub fn clear_paired_flag(dir: &Path) -> Result<(), String> {
     }
 }
 
-// ── Tauri commands ────────────────────────────────────────────
-
-#[tauri::command]
-pub fn save_passphrase_cmd(passphrase: String) -> Result<(), String> {
-    save_passphrase(&passphrase)
-}
-
-#[tauri::command]
-pub fn get_pairing_status_cmd() -> bool {
-    match load_passphrase() {
-        Ok(p) => p.is_some(),
-        Err(e) => {
-            eprintln!("Zync: keychain read failed: {e}");
-            false
-        }
-    }
-}
-
-#[tauri::command]
-pub fn clear_passphrase_cmd() -> Result<(), String> {
-    clear_passphrase()
-}
-
-#[tauri::command]
-pub fn get_passphrase_cmd() -> Result<Option<String>, String> {
-    load_passphrase()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
