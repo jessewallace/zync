@@ -374,19 +374,24 @@ async function handlePrimerContinue() {
   }
 }
 
-function handlePrimerBack() {
+async function handlePrimerBack() {
   pendingPassphrase = null;
   showScreen("screen-main");
   showTab("pair");
+  await loadPairTab();
 }
 
 async function handleForgetPassphrase() {
+  const btn = document.getElementById("btn-forget-passphrase");
+  btn.disabled = true;
   try {
     await invoke("clear_passphrase_and_cache_cmd");
     document.getElementById("passphrase-input").value = "";
     await loadPairTab();
   } catch (err) {
     setPairMsg(String(err), "error");
+  } finally {
+    btn.disabled = false;
   }
 }
 
