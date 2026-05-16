@@ -25,6 +25,9 @@ pub struct DaemonState {
     pub is_pushing: Arc<AtomicBool>,
     /// Count of successful auto-pulls received from peers this session. Resets on restart.
     pub sync_count: u32,
+    /// Cached passphrase — loaded once from the OS keychain so daemon loops never
+    /// hit the keychain (which can trigger macOS security prompts).
+    pub passphrase: Option<String>,
 }
 
 impl Default for DaemonState {
@@ -40,6 +43,7 @@ impl Default for DaemonState {
             zen_was_running: false,
             is_pushing: Arc::new(AtomicBool::new(false)),
             sync_count: 0,
+            passphrase: None,
         }
     }
 }
@@ -78,7 +82,7 @@ pub async fn manual_sync_now_cmd(
     if zen_check::is_zen_running() {
         return Err("Zen is running — close it before syncing".into());
     }
-    let passphrase = pairing::load_passphrase()?
+    let passphrase = state.lock().unwrap().passphrase.clone()
         .ok_or("No passphrase set — configure pairing in Settings first")?;
     trigger_push(&app, &state, &passphrase).await
 }
@@ -190,9 +194,9 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
 /// discards any queued pull (local session wins). If auto-push is disabled but
 /// auto-pull is enabled, drains the queued pull instead.
 async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let passphrase = match pairing::load_passphrase() {
-        Ok(Some(p)) => p,
-        _ => return,
+    let passphrase = match state.lock().unwrap().passphrase.clone() {
+        Some(p) => p,
+        None => return,
     };
 
     let zen_running = zen_check::is_zen_running();
@@ -259,20 +263,15 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
 
 /// Poll ntfy for new file IDs. Pull immediately if Zen is closed; queue if open.
 async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let passphrase = match pairing::load_passphrase() {
-        Ok(Some(p)) => p,
-        _ => return,
-    };
-
-    let since = {
+    let (passphrase, since) = {
         let s = state.lock().unwrap();
-        if !s.auto_pull_enabled {
-            return;
-        }
+        let p = match s.passphrase.clone() { Some(p) => p, None => return };
+        if !s.auto_pull_enabled { return; }
         // Prefer the last message ID (ntfy advances from that point).
         // Fall back to last_poll_time so messages published between polls are not skipped.
-        s.last_ntfy_id.clone()
-            .unwrap_or_else(|| s.last_poll_time.to_string())
+        let since = s.last_ntfy_id.clone()
+            .unwrap_or_else(|| s.last_poll_time.to_string());
+        (p, since)
     };
 
     // Capture the start time BEFORE the HTTP call. If a message is published
@@ -340,12 +339,11 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
 /// Re-upload the profile every 55 min to keep the Litterbox link alive.
 /// If Zen is open, defers the refresh by 5 min.
 async fn refresh_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let passphrase = match pairing::load_passphrase() {
-        Ok(Some(p)) => p,
-        _ => return,
+    let (passphrase, auto_push_enabled) = {
+        let s = state.lock().unwrap();
+        let p = match s.passphrase.clone() { Some(p) => p, None => return };
+        (p, s.auto_push_enabled)
     };
-
-    let auto_push_enabled = state.lock().unwrap().auto_push_enabled;
     if !auto_push_enabled {
         return;
     }
@@ -391,5 +389,11 @@ mod tests {
     fn sync_count_defaults_to_zero() {
         let state = DaemonState::default();
         assert_eq!(state.sync_count, 0);
+    }
+
+    #[test]
+    fn passphrase_defaults_to_none() {
+        let state = DaemonState::default();
+        assert!(state.passphrase.is_none());
     }
 }
