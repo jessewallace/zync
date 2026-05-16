@@ -1,4 +1,5 @@
 use sha2::{Digest, Sha256};
+use std::path::Path;
 
 const SERVICE: &str = "zync";
 const ACCOUNT: &str = "passphrase";
@@ -38,6 +39,26 @@ pub fn clear_passphrase() -> Result<(), String> {
     }
 }
 
+pub fn is_paired_flag(dir: &Path) -> bool {
+    dir.join("paired.flag").exists()
+}
+
+pub fn write_paired_flag(dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("Failed to create data dir: {e}"))?;
+    std::fs::write(dir.join("paired.flag"), b"")
+        .map_err(|e| format!("Failed to write paired flag: {e}"))
+}
+
+pub fn clear_paired_flag(dir: &Path) -> Result<(), String> {
+    let path = dir.join("paired.flag");
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Failed to clear paired flag: {e}")),
+    }
+}
+
 // ── Tauri commands ────────────────────────────────────────────
 
 #[tauri::command]
@@ -69,6 +90,22 @@ pub fn get_passphrase_cmd() -> Result<Option<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_flag_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_paired_flag(dir.path()));
+        write_paired_flag(dir.path()).unwrap();
+        assert!(is_paired_flag(dir.path()));
+        clear_paired_flag(dir.path()).unwrap();
+        assert!(!is_paired_flag(dir.path()));
+    }
+
+    #[test]
+    fn clear_flag_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(clear_paired_flag(dir.path()).is_ok());
+    }
 
     #[test]
     fn topic_is_deterministic() {
