@@ -28,6 +28,15 @@ pub struct DaemonState {
     /// Cached passphrase — loaded once from the OS keychain so daemon loops never
     /// hit the keychain (which can trigger macOS security prompts).
     pub passphrase: Option<String>,
+    /// File ID we most recently published to ntfy — skipped by the ntfy poller to
+    /// prevent a machine from pulling its own push.
+    pub last_published_file_id: Option<String>,
+    /// Number of zen watcher ticks since startup. The initial push is deferred until
+    /// tick > 1 so the t=0 ntfy poll has time to finish and pull peer data first.
+    pub startup_ticks: u8,
+    /// Set when a pull succeeds this session. Suppresses the initial push so we don't
+    /// overwrite a profile we just received from a peer on startup.
+    pub pulled_this_session: bool,
 }
 
 impl Default for DaemonState {
@@ -44,6 +53,9 @@ impl Default for DaemonState {
             is_pushing: Arc::new(AtomicBool::new(false)),
             sync_count: 0,
             passphrase: None,
+            last_published_file_id: None,
+            startup_ticks: 0,
+            pulled_this_session: false,
         }
     }
 }
@@ -118,6 +130,7 @@ pub async fn trigger_push(
             s.refresh_at = Some(
                 std::time::Instant::now() + std::time::Duration::from_secs(55 * 60),
             );
+            s.last_published_file_id = Some(file_id);
         }
 
         show_notification(app, "Profile synced");
@@ -230,6 +243,7 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                             let mut s = state.lock().unwrap();
                             s.last_synced = Some(now);
                             s.sync_count += 1;
+                            s.pulled_this_session = true;
                             SyncStatus { sync_count: s.sync_count, last_synced: s.last_synced }
                         };
                         let _ = app.emit("sync-updated", status);
@@ -247,10 +261,15 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
 
     // Initial push: if Zen has been closed since we started watching (not the
     // close edge above) and we haven't pushed yet this session, push now.
-    // This seeds the ntfy topic so other machines can pull on their first poll,
-    // fixing the case where both machines install Zync with Zen already closed.
+    // Deferred until tick > 1 (t ≥ 5 s) so the t=0 ntfy poll has time to
+    // complete and pull peer data. Skipped entirely if a pull already happened
+    // this session (peer data should win over our possibly-stale local state).
     if auto_push_enabled && !zen_running && !was_running {
-        let needs_initial_push = state.lock().unwrap().refresh_at.is_none();
+        let needs_initial_push = {
+            let mut s = state.lock().unwrap();
+            s.startup_ticks = s.startup_ticks.saturating_add(1);
+            s.refresh_at.is_none() && s.startup_ticks > 1 && !s.pulled_this_session
+        };
         if needs_initial_push {
             eprintln!("[zync] initial push: starting");
             match trigger_push(app, state, &passphrase).await {
@@ -304,6 +323,16 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
     state.lock().unwrap().last_ntfy_id = Some(latest.id.clone());
 
     let file_id = latest.message.trim().to_string();
+
+    // Skip if this is a file ID we published ourselves — prevents a machine
+    // from pulling its own push and inflating the sync count.
+    let is_own_push = state.lock().unwrap()
+        .last_published_file_id.as_deref() == Some(file_id.as_str());
+    if is_own_push {
+        eprintln!("[zync] ntfy poll: skipping own file_id={file_id}");
+        return;
+    }
+
     let zen_running = zen_check::is_zen_running();
     eprintln!("[zync] ntfy poll: file_id={file_id} zen_running={zen_running}");
 
@@ -323,6 +352,7 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
                     let mut s = state.lock().unwrap();
                     s.last_synced = Some(now);
                     s.sync_count += 1;
+                    s.pulled_this_session = true;
                     SyncStatus { sync_count: s.sync_count, last_synced: s.last_synced }
                 };
                 let _ = app.emit("sync-updated", status);
