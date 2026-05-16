@@ -82,7 +82,8 @@ pub fn run() {
             });
 
             // First run: show window so user can enter passphrase
-            if !pairing::get_pairing_status_cmd() {
+            let data_dir = app.path().app_data_dir().unwrap_or_default();
+            if !pairing::is_paired_flag(&data_dir) {
                 window.show().unwrap();
                 let _ = window.set_focus();
             }
@@ -101,15 +102,15 @@ pub fn run() {
             profile::collect_sync_files,
             sync::push_profile,
             sync::pull_profile,
-            pairing::save_passphrase_cmd,
-            pairing::get_pairing_status_cmd,
-            pairing::clear_passphrase_cmd,
             pairing::get_passphrase_cmd,
             daemon::get_sync_status_cmd,
             daemon::set_auto_push_cmd,
             daemon::set_auto_pull_cmd,
             daemon::manual_sync_now_cmd,
             install_update,
+            is_paired_cmd,
+            save_passphrase_and_cache_cmd,
+            clear_passphrase_and_cache_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -187,6 +188,39 @@ fn rebuild_tray_with_update(app: &tauri::AppHandle, version: &str) {
             eprintln!("[updater] failed to set tray menu: {e}");
         }
     }
+}
+
+#[tauri::command]
+fn is_paired_cmd(app: tauri::AppHandle) -> bool {
+    match app.path().app_data_dir() {
+        Ok(dir) => pairing::is_paired_flag(&dir),
+        Err(_) => false,
+    }
+}
+
+#[tauri::command]
+fn save_passphrase_and_cache_cmd(
+    app: tauri::AppHandle,
+    passphrase: String,
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Result<(), String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    pairing::save_passphrase(&passphrase)?;
+    pairing::write_paired_flag(&data_dir)?;
+    state.lock().unwrap().passphrase = Some(passphrase);
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_passphrase_and_cache_cmd(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Result<(), String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    pairing::clear_passphrase()?;
+    pairing::clear_paired_flag(&data_dir)?;
+    state.lock().unwrap().passphrase = None;
+    Ok(())
 }
 
 fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
