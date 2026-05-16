@@ -284,7 +284,7 @@ function timeAgo(unixSecs) {
 // ── Pair tab ──────────────────────────────────────────────────
 
 async function loadPairTab() {
-  const paired = await invoke("get_pairing_status_cmd");
+  const paired = await invoke("is_paired_cmd");
   if (!paired) {
     setPairMsg("Enter the same passphrase on each machine to enable automatic sync.");
     document.getElementById("passphrase-input").value = "";
@@ -325,6 +325,9 @@ async function loadPairTab() {
   }
 }
 
+// Holds passphrase between Pair tab and primer screen
+let pendingPassphrase = null;
+
 async function handleSavePassphrase() {
   const passphrase = document.getElementById("passphrase-input").value.trim();
   if (!passphrase) {
@@ -335,10 +338,27 @@ async function handleSavePassphrase() {
     setPairMsg("Passphrase must be at least 8 characters.", "error");
     return;
   }
+  pendingPassphrase = passphrase;
+  document.getElementById("primer-error").classList.add("hidden");
+  showScreen("screen-keychain-primer");
+}
+
+async function handlePrimerContinue() {
+  const passphrase = pendingPassphrase;
+  if (!passphrase) return;
+  const continueBtn = document.getElementById("btn-primer-continue");
+  const backBtn = document.getElementById("btn-primer-back");
+  const errorEl = document.getElementById("primer-error");
+  continueBtn.disabled = true;
+  backBtn.disabled = true;
+  errorEl.classList.add("hidden");
   try {
-    await invoke("save_passphrase_cmd", { passphrase });
+    await invoke("save_passphrase_and_cache_cmd", { passphrase });
     await invoke("set_auto_push_cmd", { enabled: document.getElementById("toggle-auto-push").checked });
     await invoke("set_auto_pull_cmd", { enabled: document.getElementById("toggle-auto-pull").checked });
+    pendingPassphrase = null;
+    showScreen("screen-main");
+    showTab("pair");
     await loadPairTab();
     const pairMsg = document.getElementById("pair-msg");
     pairMsg.classList.remove("pair-bounce");
@@ -346,13 +366,23 @@ async function handleSavePassphrase() {
     pairMsg.classList.add("pair-bounce");
     pairMsg.addEventListener("animationend", () => pairMsg.classList.remove("pair-bounce"), { once: true });
   } catch (err) {
-    setPairMsg(String(err), "error");
+    errorEl.textContent = String(err);
+    errorEl.classList.remove("hidden");
+  } finally {
+    continueBtn.disabled = false;
+    backBtn.disabled = false;
   }
+}
+
+function handlePrimerBack() {
+  pendingPassphrase = null;
+  showScreen("screen-main");
+  showTab("pair");
 }
 
 async function handleForgetPassphrase() {
   try {
-    await invoke("clear_passphrase_cmd");
+    await invoke("clear_passphrase_and_cache_cmd");
     document.getElementById("passphrase-input").value = "";
     await loadPairTab();
   } catch (err) {
@@ -362,6 +392,8 @@ async function handleForgetPassphrase() {
 
 document.getElementById("btn-save-passphrase").addEventListener("click", handleSavePassphrase);
 document.getElementById("btn-forget-passphrase").addEventListener("click", handleForgetPassphrase);
+document.getElementById("btn-primer-continue").addEventListener("click", handlePrimerContinue);
+document.getElementById("btn-primer-back").addEventListener("click", handlePrimerBack);
 document.getElementById("btn-generate").addEventListener("click", () => {
   document.getElementById("passphrase-input").value = generatePassphrase();
   const btn = document.getElementById("btn-generate");
@@ -449,7 +481,7 @@ async function init() {
     "font-size:20px;font-weight:700;color:#f76f53;font-family:'Bricolage Grotesque',system-ui,sans-serif",
     "\nSync your Zen Browser profile between machines.\nBuilt with Tauri · Rust · vanilla JS."
   );
-  const paired = await invoke("get_pairing_status_cmd");
+  const paired = await invoke("is_paired_cmd");
   showScreen("screen-main");
   await loadPairTab();
   if (!paired) {
