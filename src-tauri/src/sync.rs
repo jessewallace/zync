@@ -76,7 +76,32 @@ fn write_bundle_files(
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create directory for {name}: {e}"))?;
         }
-        std::fs::write(&dest, &bytes)
+        // For prefs.js: preserve the local machine's app.update.* lines so that
+        // machine-local Zen update state (downloaded update path, dialog shown flag)
+        // isn't erased when the synced prefs.js is applied. The incoming bundle
+        // already has app.update.* stripped on push; appending the local lines
+        // ensures Zen doesn't re-prompt for an update the user already accepted.
+        let final_bytes = if name == "prefs.js" {
+            let local_update_lines: Vec<String> = if dest.exists() {
+                std::fs::read_to_string(&dest)
+                    .unwrap_or_default()
+                    .lines()
+                    .filter(|l| l.trim_start().starts_with("user_pref(\"app.update."))
+                    .map(String::from)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            if local_update_lines.is_empty() {
+                bytes
+            } else {
+                let synced = String::from_utf8_lossy(&bytes);
+                format!("{}\n{}\n", synced.trim_end(), local_update_lines.join("\n")).into_bytes()
+            }
+        } else {
+            bytes
+        };
+        std::fs::write(&dest, &final_bytes)
             .map_err(|e| format!("Failed to write {name}: {e}"))?;
         // Remove stale WAL/SHM after writing SQLite files. If a leftover WAL from
         // the destination's previous session shares page numbers with the new db,

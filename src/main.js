@@ -305,16 +305,14 @@ async function loadPairTab() {
     return;
   }
 
-  const total = (sync_count || 0) + (push_count || 0);
-  if (total === 0) {
+  if (last_synced) {
+    setPairMsg(`Active · last ${timeAgo(last_synced)}`, "success");
+  } else if ((sync_count || 0) + (push_count || 0) > 0) {
+    setPairMsg("Active", "success");
+  } else {
     setPairMsg(
       "Paired — waiting for other machines. Check passphrases match if nothing syncs.",
       "neutral"
-    );
-  } else {
-    setPairMsg(
-      `Active — ${total} sync${total === 1 ? "" : "s"}${last_synced ? ` · last ${timeAgo(last_synced)}` : ""}`,
-      "success"
     );
   }
 
@@ -466,15 +464,11 @@ async function initUpdateListener() {
   await listen("sync-updated", ({ payload }) => {
     const isPairTabActive = document.querySelector('[data-tab="pair"]')?.classList.contains("active");
     if (!isPairTabActive) return;
-    const { sync_count, push_count, last_synced } = payload;
-    const total = (sync_count || 0) + (push_count || 0);
-    if (total === 0) {
-      setPairMsg("Paired — waiting for other machines. Check passphrases match if nothing syncs.", "neutral");
+    const { last_synced } = payload;
+    if (last_synced) {
+      setPairMsg(`Active · last ${timeAgo(last_synced)}`, "success");
     } else {
-      setPairMsg(
-        `Active — ${total} sync${total === 1 ? "" : "s"}${last_synced ? ` · last ${timeAgo(last_synced)}` : ""}`,
-        "success"
-      );
+      setPairMsg("Active", "success");
     }
   });
 }
