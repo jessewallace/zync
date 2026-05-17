@@ -26,6 +26,17 @@ fn checkpoint_wal(db_path: &Path) -> Result<(), String> {
         .map_err(|e| format!("WAL checkpoint failed: {e}"))
 }
 
+/// Strip Zen's update state from prefs.js before syncing. These prefs encode a
+/// downloaded-but-not-installed update binary path that is machine-local; syncing
+/// them causes the receiving machine to repeatedly show the "Update Ready" dialog.
+fn strip_update_prefs(content: &str) -> String {
+    content
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("user_pref(\"app.update."))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn collect_sync_files(profile_dir: &std::path::Path) -> Result<HashMap<String, String>, String> {
     let mut files = HashMap::new();
     for &name in profile::SYNC_FILES {
@@ -33,8 +44,14 @@ fn collect_sync_files(profile_dir: &std::path::Path) -> Result<HashMap<String, S
         if !path.exists() {
             continue;
         }
-        let bytes = std::fs::read(&path)
-            .map_err(|e| format!("Could not read {name}: {e}"))?;
+        let bytes = if name == "prefs.js" {
+            let content = std::fs::read_to_string(&path)
+                .map_err(|e| format!("Could not read {name}: {e}"))?;
+            strip_update_prefs(&content).into_bytes()
+        } else {
+            std::fs::read(&path)
+                .map_err(|e| format!("Could not read {name}: {e}"))?
+        };
         files.insert(name.to_string(), BASE64.encode(&bytes));
     }
     if files.is_empty() {

@@ -291,9 +291,9 @@ async function loadPairTab() {
     return;
   }
 
-  let sync_count = 0, last_synced = null;
+  let sync_count = 0, push_count = 0, last_synced = null;
   try {
-    ({ sync_count, last_synced } = await invoke("get_sync_status_cmd"));
+    ({ sync_count, push_count, last_synced } = await invoke("get_sync_status_cmd"));
   } catch (_) {
     setPairMsg("Paired — waiting for other machines. Check passphrases match if nothing syncs.", "neutral");
     try {
@@ -305,14 +305,15 @@ async function loadPairTab() {
     return;
   }
 
-  if (sync_count === 0) {
+  const total = (sync_count || 0) + (push_count || 0);
+  if (total === 0) {
     setPairMsg(
       "Paired — waiting for other machines. Check passphrases match if nothing syncs.",
       "neutral"
     );
   } else {
     setPairMsg(
-      `Active — ${sync_count} sync${sync_count === 1 ? "" : "s"}${last_synced ? ` · last ${timeAgo(last_synced)}` : ""}`,
+      `Active — ${total} sync${total === 1 ? "" : "s"}${last_synced ? ` · last ${timeAgo(last_synced)}` : ""}`,
       "success"
     );
   }
@@ -465,12 +466,13 @@ async function initUpdateListener() {
   await listen("sync-updated", ({ payload }) => {
     const isPairTabActive = document.querySelector('[data-tab="pair"]')?.classList.contains("active");
     if (!isPairTabActive) return;
-    const { sync_count, last_synced } = payload;
-    if (sync_count === 0) {
+    const { sync_count, push_count, last_synced } = payload;
+    const total = (sync_count || 0) + (push_count || 0);
+    if (total === 0) {
       setPairMsg("Paired — waiting for other machines. Check passphrases match if nothing syncs.", "neutral");
     } else {
       setPairMsg(
-        `Active — ${sync_count} sync${sync_count === 1 ? "" : "s"}${last_synced ? ` · last ${timeAgo(last_synced)}` : ""}`,
+        `Active — ${total} sync${total === 1 ? "" : "s"}${last_synced ? ` · last ${timeAgo(last_synced)}` : ""}`,
         "success"
       );
     }

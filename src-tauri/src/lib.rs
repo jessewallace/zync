@@ -276,7 +276,18 @@ fn save_passphrase_and_cache_cmd(
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     pairing::save_passphrase(&passphrase)?;
     pairing::write_paired_flag(&data_dir)?;
-    state.lock().unwrap().passphrase = Some(passphrase);
+    {
+        let mut s = state.lock().unwrap();
+        s.passphrase = Some(passphrase);
+        // Reset so the initial push waits for the first ntfy poll with this passphrase.
+        // Prevents a newly paired machine from overwriting peers before checking for
+        // their data (the old startup_ticks guard only worked on fresh app start).
+        s.ntfy_polled_since_pair = false;
+        s.pulled_this_session = false;
+    }
+    // Poll ntfy immediately so the initial push gate clears within seconds,
+    // not at the next 60-second cycle boundary.
+    daemon::trigger_ntfy_poll_now(app, state.inner().clone());
     Ok(())
 }
 

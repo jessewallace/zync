@@ -31,12 +31,15 @@ pub struct DaemonState {
     /// File ID we most recently published to ntfy — skipped by the ntfy poller to
     /// prevent a machine from pulling its own push.
     pub last_published_file_id: Option<String>,
-    /// Number of zen watcher ticks since startup. The initial push is deferred until
-    /// tick > 1 so the t=0 ntfy poll has time to finish and pull peer data first.
-    pub startup_ticks: u8,
+    /// Set after the first ntfy poll attempt with the current passphrase completes
+    /// (success or network error). The initial push is gated on this flag so that a
+    /// newly paired machine always checks for peer data before pushing its own profile.
+    pub ntfy_polled_since_pair: bool,
     /// Set when a pull succeeds this session. Suppresses the initial push so we don't
     /// overwrite a profile we just received from a peer on startup.
     pub pulled_this_session: bool,
+    /// Count of successful auto-pushes sent to peers this session.
+    pub push_count: u32,
 }
 
 impl Default for DaemonState {
@@ -54,8 +57,9 @@ impl Default for DaemonState {
             sync_count: 0,
             passphrase: None,
             last_published_file_id: None,
-            startup_ticks: 0,
+            ntfy_polled_since_pair: false,
             pulled_this_session: false,
+            push_count: 0,
         }
     }
 }
@@ -65,6 +69,7 @@ impl Default for DaemonState {
 #[derive(serde::Serialize, Clone)]
 pub struct SyncStatus {
     pub sync_count: u32,
+    pub push_count: u32,
     pub last_synced: Option<u64>,
 }
 
@@ -73,7 +78,7 @@ pub fn get_sync_status_cmd(
     state: tauri::State<Arc<Mutex<DaemonState>>>,
 ) -> SyncStatus {
     let s = state.lock().unwrap();
-    SyncStatus { sync_count: s.sync_count, last_synced: s.last_synced }
+    SyncStatus { sync_count: s.sync_count, push_count: s.push_count, last_synced: s.last_synced }
 }
 
 #[tauri::command]
@@ -96,7 +101,7 @@ pub async fn manual_sync_now_cmd(
     }
     let passphrase = state.lock().unwrap().passphrase.clone()
         .ok_or("No passphrase set — configure pairing in Settings first")?;
-    trigger_push(&app, &state, &passphrase).await
+    trigger_push(&app, &state, &passphrase, false).await
 }
 
 // ── Push helper ───────────────────────────────────────────────────────────────
@@ -104,10 +109,12 @@ pub async fn manual_sync_now_cmd(
 /// Upload the current profile and publish the file ID to ntfy.
 /// Updates `last_synced` and `refresh_at` on success.
 /// Returns immediately (Ok) if another push is already in flight.
+/// `is_refresh` — true for 55-min keepalive re-uploads (skips count/event update).
 pub async fn trigger_push(
     app: &tauri::AppHandle,
     state: &Arc<Mutex<DaemonState>>,
     passphrase: &str,
+    is_refresh: bool,
 ) -> Result<(), String> {
     let is_pushing = state.lock().unwrap().is_pushing.clone();
     if is_pushing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
@@ -124,13 +131,21 @@ pub async fn trigger_push(
             .unwrap_or_default()
             .as_secs();
 
-        {
+        let status = {
             let mut s = state.lock().unwrap();
             s.last_synced = Some(now);
             s.refresh_at = Some(
                 std::time::Instant::now() + std::time::Duration::from_secs(55 * 60),
             );
             s.last_published_file_id = Some(file_id);
+            if !is_refresh {
+                s.push_count += 1;
+            }
+            SyncStatus { sync_count: s.sync_count, push_count: s.push_count, last_synced: s.last_synced }
+        };
+
+        if !is_refresh {
+            let _ = app.emit("sync-updated", status);
         }
 
         show_notification(app, "Profile synced");
@@ -201,6 +216,14 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
     }
 }
 
+/// Spawn a one-shot ntfy poll immediately. Used by `save_passphrase_and_cache_cmd`
+/// so that a newly paired machine checks for peer data before its initial push.
+pub fn trigger_ntfy_poll_now(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
+    tauri::async_runtime::spawn(async move {
+        ntfy_poll_tick(&app, &state).await;
+    });
+}
+
 // ── Tick helpers ──────────────────────────────────────────────────────────────
 
 /// Detect the Zen→closed edge. If auto-push is enabled, triggers a push and
@@ -226,7 +249,7 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
         if auto_push_enabled {
             // Push wins — discard any queued pull
             state.lock().unwrap().pending_file_id = None;
-            if let Err(e) = trigger_push(app, state, &passphrase).await {
+            if let Err(e) = trigger_push(app, state, &passphrase, false).await {
                 show_notification(app, &format!("Auto-push failed: {e}"));
             }
         } else if auto_pull_enabled {
@@ -244,7 +267,7 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                             s.last_synced = Some(now);
                             s.sync_count += 1;
                             s.pulled_this_session = true;
-                            SyncStatus { sync_count: s.sync_count, last_synced: s.last_synced }
+                            SyncStatus { sync_count: s.sync_count, push_count: s.push_count, last_synced: s.last_synced }
                         };
                         let _ = app.emit("sync-updated", status);
                         show_notification(app, "Profile updated from another machine");
@@ -261,18 +284,20 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
 
     // Initial push: if Zen has been closed since we started watching (not the
     // close edge above) and we haven't pushed yet this session, push now.
-    // Deferred until tick > 1 (t ≥ 5 s) so the t=0 ntfy poll has time to
-    // complete and pull peer data. Skipped entirely if a pull already happened
-    // this session (peer data should win over our possibly-stale local state).
+    // Gated on ntfy_polled_since_pair so a newly paired machine always checks
+    // for peer data before pushing — this replaces the old startup_ticks guard,
+    // which was ineffective when the passphrase was set mid-session (startup_ticks
+    // was already large and the initial push fired before the 60-s ntfy cycle ran).
+    // If auto-pull is disabled there is nothing to wait for; push immediately.
     if auto_push_enabled && !zen_running && !was_running {
         let needs_initial_push = {
-            let mut s = state.lock().unwrap();
-            s.startup_ticks = s.startup_ticks.saturating_add(1);
-            s.refresh_at.is_none() && s.startup_ticks > 1 && !s.pulled_this_session
+            let s = state.lock().unwrap();
+            let polled_or_no_pull = s.ntfy_polled_since_pair || !s.auto_pull_enabled;
+            s.refresh_at.is_none() && !s.pulled_this_session && polled_or_no_pull
         };
         if needs_initial_push {
             eprintln!("[zync] initial push: starting");
-            match trigger_push(app, state, &passphrase).await {
+            match trigger_push(app, state, &passphrase, false).await {
                 Ok(()) => eprintln!("[zync] initial push: ok"),
                 Err(e) => eprintln!("[zync] initial push: failed: {e}"),
             }
@@ -307,14 +332,23 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         Ok(m) => m,
         Err(e) => {
             eprintln!("ntfy poll error: {e}");
-            // Advance last_poll_time even on error so recovery doesn't re-fetch ancient messages.
-            state.lock().unwrap().last_poll_time = poll_start;
+            {
+                let mut s = state.lock().unwrap();
+                // Advance last_poll_time even on error so recovery doesn't re-fetch ancient messages.
+                s.last_poll_time = poll_start;
+                // Allow the initial push to proceed even when ntfy is unreachable.
+                s.ntfy_polled_since_pair = true;
+            }
             return;
         }
     };
 
     eprintln!("[zync] ntfy poll: {} message(s) found", messages.len());
-    state.lock().unwrap().last_poll_time = poll_start;
+    {
+        let mut s = state.lock().unwrap();
+        s.last_poll_time = poll_start;
+        s.ntfy_polled_since_pair = true;
+    }
 
     // Use the message with the highest timestamp in case ntfy ever returns
     // messages out of arrival order (e.g., two machines push simultaneously).
@@ -353,7 +387,7 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
                     s.last_synced = Some(now);
                     s.sync_count += 1;
                     s.pulled_this_session = true;
-                    SyncStatus { sync_count: s.sync_count, last_synced: s.last_synced }
+                    SyncStatus { sync_count: s.sync_count, push_count: s.push_count, last_synced: s.last_synced }
                 };
                 let _ = app.emit("sync-updated", status);
                 show_notification(app, "Profile updated from another machine");
@@ -397,7 +431,7 @@ async fn refresh_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
         return;
     }
 
-    if let Err(e) = trigger_push(app, state, &passphrase).await {
+    if let Err(e) = trigger_push(app, state, &passphrase, true).await {
         show_notification(app, &format!("Refresh failed: {e}"));
     }
 }
