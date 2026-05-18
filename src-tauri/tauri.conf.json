@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Zync",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "identifier": "app.zync.zensync",
   "build": {
     "frontendDist": "../src",

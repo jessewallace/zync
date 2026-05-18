@@ -26,13 +26,19 @@ fn checkpoint_wal(db_path: &Path) -> Result<(), String> {
         .map_err(|e| format!("WAL checkpoint failed: {e}"))
 }
 
-/// Strip Zen's update state from prefs.js before syncing. These prefs encode a
-/// downloaded-but-not-installed update binary path that is machine-local; syncing
-/// them causes the receiving machine to repeatedly show the "Update Ready" dialog.
+/// Strip machine-local update state from prefs.js before syncing.
+/// Both `app.update.*` (Firefox update timers/state) and `zen.updates.*`
+/// (Zen's own version tracking) must be excluded — syncing them across machines
+/// causes the receiving machine to show "Update Ready" or trigger an immediate
+/// update check because the version recorded in prefs doesn't match the binary.
 fn strip_update_prefs(content: &str) -> String {
     content
         .lines()
-        .filter(|line| !line.trim_start().starts_with("user_pref(\"app.update."))
+        .filter(|line| {
+            let t = line.trim_start();
+            !t.starts_with("user_pref(\"app.update.")
+                && !t.starts_with("user_pref(\"zen.updates.")
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -86,7 +92,11 @@ fn write_bundle_files(
                 std::fs::read_to_string(&dest)
                     .unwrap_or_default()
                     .lines()
-                    .filter(|l| l.trim_start().starts_with("user_pref(\"app.update."))
+                    .filter(|l| {
+                        let t = l.trim_start();
+                        t.starts_with("user_pref(\"app.update.")
+                            || t.starts_with("user_pref(\"zen.updates.")
+                    })
                     .map(String::from)
                     .collect()
             } else {
