@@ -251,8 +251,12 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
         let pending = state.lock().unwrap().pending_file_id.take();
 
         if let Some(file_id) = pending {
-            // Peer data is newer — drain the pull and skip pushing our local session.
-            if auto_pull_enabled {
+            // We have a queued file ID from a peer. Only treat it as authoritative
+            // if we haven't pushed this session — if push_count > 0 we already
+            // contributed data and our local profile is the newer source.
+            let already_pushed = state.lock().unwrap().push_count > 0;
+            if auto_pull_enabled && !already_pushed {
+                // We haven't pushed this session — peer data is newer, drain the pull.
                 match sync::auto_pull(&file_id, &passphrase).await {
                     Ok(_) => {
                         let now = std::time::SystemTime::now()
@@ -271,8 +275,13 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                     }
                     Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
                 }
+            } else if auto_push_enabled {
+                // We already pushed this session — our local profile is authoritative.
+                // Push again so our data wins over any stale peer push.
+                if let Err(e) = trigger_push(app, state, &passphrase, false).await {
+                    show_notification(app, &format!("Auto-push failed: {e}"));
+                }
             }
-            // Do not push — a peer already has the authoritative profile.
         } else if auto_push_enabled {
             // No pending pull — safe to push our local session.
             if let Err(e) = trigger_push(app, state, &passphrase, false).await {
