@@ -246,16 +246,13 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
 
     // Zen just closed
     if was_running && !zen_running {
-        if auto_push_enabled {
-            // Push wins — discard any queued pull
-            state.lock().unwrap().pending_file_id = None;
-            if let Err(e) = trigger_push(app, state, &passphrase, false).await {
-                show_notification(app, &format!("Auto-push failed: {e}"));
-            }
-        } else if auto_pull_enabled {
-            // Auto-push disabled, auto-pull enabled — drain any queued pull
-            let pending = state.lock().unwrap().pending_file_id.take();
-            if let Some(file_id) = pending {
+        // Always consume the pending slot — if a peer pushed while Zen was open,
+        // their data is newer than our local session and takes priority.
+        let pending = state.lock().unwrap().pending_file_id.take();
+
+        if let Some(file_id) = pending {
+            // Peer data is newer — drain the pull and skip pushing our local session.
+            if auto_pull_enabled {
                 match sync::auto_pull(&file_id, &passphrase).await {
                     Ok(_) => {
                         let now = std::time::SystemTime::now()
@@ -275,9 +272,12 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                     Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
                 }
             }
-        } else {
-            // Both disabled — discard the queue
-            state.lock().unwrap().pending_file_id = None;
+            // Do not push — a peer already has the authoritative profile.
+        } else if auto_push_enabled {
+            // No pending pull — safe to push our local session.
+            if let Err(e) = trigger_push(app, state, &passphrase, false).await {
+                show_notification(app, &format!("Auto-push failed: {e}"));
+            }
         }
         return;
     }

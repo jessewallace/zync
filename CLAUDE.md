@@ -80,8 +80,9 @@ cd src-tauri && cargo test
 
 ### Daemon background loops (daemon.rs)
 Three loops run from app startup:
-1. **Zen watcher (every 5s)** — detects Zen→closed edge and triggers auto-push.
-   If auto-push is disabled and a pull is queued, drains the queued pull instead.
+1. **Zen watcher (every 5s)** — detects Zen→closed edge. If a pull is queued (peer
+   pushed while Zen was open), drains that pull and skips the local push — peer data
+   takes priority. If no pull is queued and auto-push is enabled, pushes the local profile.
 2. **ntfy poller (every 60s)** — polls the shared ntfy topic for new file IDs.
    Pulls immediately if Zen is closed; queues the file ID if Zen is open (pulls when Zen closes).
 3. **Refresh timer (every 5min, triggers at 55min mark)** — re-uploads to keep the

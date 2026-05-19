@@ -6420,7 +6420,7 @@ dependencies = [
 
 [[package]]
 name = "zync"
-version = "0.3.7"
+version = "0.3.9"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",

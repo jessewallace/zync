@@ -1,6 +1,6 @@
 [package]
 name = "zync"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 description = "Sync Zen Browser profiles between machines"
 
