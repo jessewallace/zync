@@ -591,8 +591,38 @@ input[type="text"]::placeholder {
   font-size: 13px;
   color: var(--text);
   line-height: 1.6;
-  white-space: pre-wrap;
 }
+.update-notes p { margin: 0 0 6px; }
+.update-notes p:last-child { margin-bottom: 0; }
+.update-notes h3,
+.update-notes h4,
+.update-notes h5 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 10px 0 4px;
+}
+.update-notes h3:first-child,
+.update-notes h4:first-child,
+.update-notes h5:first-child { margin-top: 0; }
+.update-notes ul {
+  margin: 0 0 6px;
+  padding-left: 16px;
+  list-style: disc;
+}
+.update-notes li { margin: 2px 0; }
+.update-notes strong { font-weight: 600; }
+.update-notes em { font-style: italic; }
+.update-notes code {
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--bg);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.update-notes br { display: none; }
 
 .update-actions {
   display: flex;

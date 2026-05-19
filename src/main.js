@@ -411,6 +411,50 @@ document.getElementById("btn-generate").addEventListener("click", () => {
 
 const { listen } = window.__TAURI__.event;
 
+function renderMarkdown(md) {
+  const escaped = md
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  const lines = escaped.split("\n");
+  const out = [];
+  let inList = false;
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+
+    const hMatch = line.match(/^(#{1,3})\s+(.+)/);
+    if (hMatch) {
+      if (inList) { out.push("</ul>"); inList = false; }
+      const level = Math.min(hMatch[1].length + 2, 6); // h3–h5
+      out.push(`<h${level}>${inline(hMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    const liMatch = line.match(/^[-*]\s+(.+)/);
+    if (liMatch) {
+      if (!inList) { out.push("<ul>"); inList = true; }
+      out.push(`<li>${inline(liMatch[1])}</li>`);
+      continue;
+    }
+
+    if (inList) { out.push("</ul>"); inList = false; }
+    if (line === "") { out.push("<br>"); continue; }
+    out.push(`<p>${inline(line)}</p>`);
+  }
+
+  if (inList) out.push("</ul>");
+  return out.join("");
+}
+
+function inline(s) {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
+}
+
 async function showUpdateDialog(version, notes) {
   document.getElementById("update-version-number").textContent = version;
   try {
@@ -419,7 +463,9 @@ async function showUpdateDialog(version, notes) {
   } catch (_) {
     document.getElementById("update-current-version").textContent = "";
   }
-  document.getElementById("update-notes").textContent = notes || "No release notes provided.";
+  document.getElementById("update-notes").innerHTML = notes
+    ? renderMarkdown(notes)
+    : "<p>No release notes provided.</p>";
   document.getElementById("update-error").classList.add("hidden");
   document.getElementById("btn-update-install").disabled = false;
   document.getElementById("btn-update-install").textContent = "Install & Restart";
