@@ -40,6 +40,10 @@ pub struct DaemonState {
     pub pulled_this_session: bool,
     /// Count of successful auto-pushes sent to peers this session.
     pub push_count: u32,
+    /// Set when Zen opens after a push; cleared after each push.
+    /// Refresh re-uploads are suppressed until Zen has been opened again,
+    /// preventing repeated uploads when the profile hasn't changed.
+    pub zen_opened_since_last_push: bool,
 }
 
 impl Default for DaemonState {
@@ -60,6 +64,7 @@ impl Default for DaemonState {
             ntfy_polled_since_pair: false,
             pulled_this_session: false,
             push_count: 0,
+            zen_opened_since_last_push: false,
         }
     }
 }
@@ -138,6 +143,7 @@ pub async fn trigger_push(
                 std::time::Instant::now() + std::time::Duration::from_secs(55 * 60),
             );
             s.last_published_file_id = Some(file_id);
+            s.zen_opened_since_last_push = false;
             if !is_refresh {
                 s.push_count += 1;
             }
@@ -241,6 +247,10 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
         let mut s = state.lock().unwrap();
         let was = s.zen_was_running;
         s.zen_was_running = zen_running;
+        // Zen just opened — mark that the profile may change, enabling future refresh.
+        if !was && zen_running {
+            s.zen_opened_since_last_push = true;
+        }
         (was, s.auto_push_enabled, s.auto_pull_enabled)
     };
 
@@ -423,9 +433,10 @@ async fn refresh_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
 
     let should_refresh = {
         let s = state.lock().unwrap();
-        s.refresh_at
-            .map(|d| std::time::Instant::now() >= d)
-            .unwrap_or(false)
+        s.zen_opened_since_last_push
+            && s.refresh_at
+                .map(|d| std::time::Instant::now() >= d)
+                .unwrap_or(false)
     };
 
     if !should_refresh {
