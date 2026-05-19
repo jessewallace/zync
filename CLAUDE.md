@@ -177,6 +177,30 @@ NOT `{hash}.release` as older docs suggest. Detection matches any folder contain
 
 ---
 
+## Release Process
+
+When the user asks to cut a release or bump the version, follow these steps in order:
+
+1. **Determine the new version** — ask the user if not specified (semver: patch for fixes, minor for new features).
+
+2. **Write the changelog entry** — run `git log v{PREVIOUS_VERSION}..HEAD --oneline` to get all commits since the last tag. Synthesize them into a `## {NEW_VERSION}` block at the top of `CHANGELOG.md` using these four sections (omit any section that has no entries):
+   - `### Security` — anything affecting encryption, auth, or data integrity
+   - `### Fixed` — bug fixes
+   - `### Changed` — behavior changes to existing features
+   - `### Added` — new features or capabilities
+   
+   Write entries as short, user-facing sentences (not commit message fragments). Only include things a user of the app would notice. Exclude everything else — specifically: version bumps, `chore:` commits, `docs:` commits, changes to `CLAUDE.md` or other internal docs, release workflow changes, CI fixes, refactors with no behavior change, and any internal tooling or process work.
+
+3. **Bump the version** — update `version` in both `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` to the new version string.
+
+4. **Commit** — stage `CHANGELOG.md`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`. Commit message: `chore: bump to {NEW_VERSION}`.
+
+5. **Tag** — `git tag v{NEW_VERSION}`.
+
+6. **Confirm before pushing** — show the user the changelog entry and ask them to confirm before running `git push && git push --tags`.
+
+---
+
 ## CI / Release
 
 - **Workflow:** `.github/workflows/release.yml` — triggers on `v*.*.*` tags

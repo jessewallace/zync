@@ -70,6 +70,25 @@ jobs:
             fs.writeFileSync('src-tauri/Cargo.toml', cargo);
           "
 
+      - name: Extract changelog
+        id: changelog
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "
+            const fs = require('fs');
+            const version = '$VERSION';
+            const lines = fs.readFileSync('CHANGELOG.md', 'utf8').split('\n');
+            let found = false, body = [];
+            for (const line of lines) {
+              if (line === '## ' + version) { found = true; continue; }
+              if (found && line.startsWith('## ')) break;
+              if (found) body.push(line);
+            }
+            const trimmed = body.join('\n').trim();
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'body<<EOF\n' + trimmed + '\nEOF\n');
+          "
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -85,26 +104,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Zync ${{ github.ref_name }}'
-          releaseBody: |
-            ## Download
-
-            | Platform | File |
-            |----------|------|
-            | macOS (Apple Silicon + Intel universal) | `.dmg` |
-            | Windows | `.msi` or `.exe` |
-            | Linux | `.AppImage` |
-
-            ## First Launch Notes
-
-            - **macOS:** If macOS blocks the app on first open, right-click the `.dmg` and choose **Open**.
-            - **Windows:** If SmartScreen warns you, click **More info → Run anyway**.
-            - **Linux:** Make the AppImage executable (`chmod +x Zync_*.AppImage`) before running.
-
-            ## Usage
-
-            1. Close Zen Browser on the source machine.
-            2. Open Zync and click **Push** — you'll receive a `ZEN-KEY-FILEID` sync code valid for 1 hour.
-            3. On the target machine, open Zync, paste the sync code, and click **Pull**.
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
