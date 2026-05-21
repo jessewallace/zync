@@ -126,36 +126,9 @@ pub async fn trigger_push(
         return Ok(()); // Another push is in flight; skip silently
     }
 
-    let result = async {
-        let file_id = sync::auto_push(passphrase).await?;
-        let topic = pairing::derive_ntfy_topic(passphrase);
-        ntfy::publish(&topic, &file_id).await?;
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        let status = {
-            let mut s = state.lock().unwrap();
-            s.last_synced = Some(now);
-            s.refresh_at = Some(
-                std::time::Instant::now() + std::time::Duration::from_secs(55 * 60),
-            );
-            s.last_published_file_id = Some(file_id);
-            s.zen_opened_since_last_push = false;
-            if !is_refresh {
-                s.push_count += 1;
-            }
-            SyncStatus { sync_count: s.sync_count, push_count: s.push_count, last_synced: s.last_synced }
-        };
-
-        if !is_refresh {
-            let _ = app.emit("sync-updated", status);
-        }
-
-        show_notification(app, "Profile synced");
-        Ok(())
+    // TODO(github-sync-redesign): trigger_push will be rewritten to use github_push.
+    let result: Result<(), String> = async {
+        Err("Auto-sync not yet implemented for GitHub backend".to_string())
     }.await;
 
     is_pushing.store(false, Ordering::SeqCst);
@@ -266,25 +239,8 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
             // contributed data and our local profile is the newer source.
             let already_pushed = state.lock().unwrap().push_count > 0;
             if auto_pull_enabled && !already_pushed {
-                // We haven't pushed this session — peer data is newer, drain the pull.
-                match sync::auto_pull(&file_id, &passphrase).await {
-                    Ok(_) => {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        let status = {
-                            let mut s = state.lock().unwrap();
-                            s.last_synced = Some(now);
-                            s.sync_count += 1;
-                            s.pulled_this_session = true;
-                            SyncStatus { sync_count: s.sync_count, push_count: s.push_count, last_synced: s.last_synced }
-                        };
-                        let _ = app.emit("sync-updated", status);
-                        show_notification(app, "Profile updated from another machine");
-                    }
-                    Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
-                }
+                // TODO(github-sync-redesign): zen_watcher drain-pull will be rewritten to use github_pull.
+                show_notification(app, "Auto-pull not yet implemented for GitHub backend");
             } else if auto_push_enabled {
                 // We already pushed this session — our local profile is authoritative.
                 // Push again so our data wins over any stale peer push.
@@ -393,29 +349,9 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         state.lock().unwrap().pending_file_id = Some(file_id);
         show_notification(app, "New profile available — will pull when Zen closes");
     } else {
-        eprintln!("[zync] auto-pull starting: file_id={file_id}");
-        match sync::auto_pull(&file_id, &passphrase).await {
-            Ok(written) => {
-                eprintln!("[zync] auto-pull ok: wrote {:?}", written);
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let status = {
-                    let mut s = state.lock().unwrap();
-                    s.last_synced = Some(now);
-                    s.sync_count += 1;
-                    s.pulled_this_session = true;
-                    SyncStatus { sync_count: s.sync_count, push_count: s.push_count, last_synced: s.last_synced }
-                };
-                let _ = app.emit("sync-updated", status);
-                show_notification(app, "Profile updated from another machine");
-            }
-            Err(e) => {
-                eprintln!("[zync] auto-pull failed: {e}");
-                show_notification(app, &format!("Auto-pull failed: {e}"));
-            }
-        }
+        // TODO(github-sync-redesign): ntfy auto-pull will be rewritten to use github_pull.
+        eprintln!("[zync] auto-pull not yet implemented for GitHub backend (file_id={file_id})");
+        show_notification(app, "Auto-pull not yet implemented for GitHub backend");
     }
 }
 
