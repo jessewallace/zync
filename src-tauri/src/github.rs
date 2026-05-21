@@ -107,6 +107,104 @@ fn load_token_parts() -> Option<(String, u64, String)> {
     Some((token, user_id, username))
 }
 
+// ── OAuth ─────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct GitHubUser {
+    id: u64,
+    login: String,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    access_token: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+async fn fetch_user(http: &reqwest::Client, token: &str) -> Result<(u64, String), String> {
+    let user: GitHubUser = http
+        .get(format!("{API_BASE}/user"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "zync-app")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub user fetch failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("GitHub user fetch error: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("GitHub user parse error: {e}"))?;
+    Ok((user.id, user.login))
+}
+
+/// Open a browser OAuth flow. Returns (token, user_id, username).
+pub async fn oauth_connect(app: &tauri::AppHandle) -> Result<(String, u64, String), String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+
+    let port = tauri_plugin_oauth::start(move |url| {
+        if let Some(tx) = tx.lock().unwrap().take() {
+            let _ = tx.send(url);
+        }
+    })
+    .map_err(|e| format!("OAuth server start failed: {e}"))?;
+
+    let auth_url = format!(
+        "https://github.com/login/oauth/authorize?client_id={}&scope=repo&redirect_uri=http://127.0.0.1:{}",
+        GITHUB_CLIENT_ID, port
+    );
+
+    app.opener()
+        .open_url(auth_url, None::<&str>)
+        .map_err(|e| format!("Failed to open browser: {e}"))?;
+
+    let redirect_url = rx.await.map_err(|_| "OAuth cancelled or timed out".to_string())?;
+
+    // Parse ?code= from redirect URL
+    let code = redirect_url
+        .split('?')
+        .nth(1)
+        .and_then(|q| {
+            q.split('&').find_map(|kv| {
+                let mut parts = kv.splitn(2, '=');
+                if parts.next()? == "code" { parts.next().map(str::to_string) } else { None }
+            })
+        })
+        .ok_or("OAuth redirect did not contain a code")?;
+
+    // Exchange code for token
+    let http = reqwest::Client::new();
+    let resp: TokenResponse = http
+        .post("https://github.com/login/oauth/access_token")
+        .header("Accept", "application/json")
+        .header("User-Agent", "zync-app")
+        .json(&serde_json::json!({
+            "client_id": GITHUB_CLIENT_ID,
+            "client_secret": GITHUB_CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": format!("http://127.0.0.1:{port}"),
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Token exchange request failed: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Token exchange parse error: {e}"))?;
+
+    if let Some(err) = resp.error {
+        return Err(format!("OAuth error: {err} — {}", resp.error_description.unwrap_or_default()));
+    }
+
+    let token = resp.access_token.ok_or("No access_token in response")?;
+    let (user_id, username) = fetch_user(&http, &token).await?;
+    Ok((token, user_id, username))
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
