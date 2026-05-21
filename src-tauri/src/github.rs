@@ -232,7 +232,8 @@ impl GitHubClient {
                 .json(&serde_json::json!({
                     "name": REPO_NAME,
                     "private": true,
-                    "description": "Zync profile storage — do not modify"
+                    "description": "Zync profile storage — do not modify",
+                    "auto_init": true
                 }))
                 .send()
                 .await
