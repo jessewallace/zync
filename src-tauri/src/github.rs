@@ -178,7 +178,10 @@ pub async fn oauth_connect(app: &tauri::AppHandle) -> Result<(String, u64, Strin
         .ok_or("OAuth redirect did not contain a code")?;
 
     // Exchange code for token
-    let http = reqwest::Client::new();
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
     let resp: TokenResponse = http
         .post("https://github.com/login/oauth/access_token")
         .header("Accept", "application/json")
@@ -217,7 +220,8 @@ impl GitHubClient {
         h
     }
 
-    async fn ensure_repo(&self) -> Result<(), String> {
+    /// Returns `true` if the repo was just created (caller should wait for init).
+    async fn ensure_repo(&self) -> Result<bool, String> {
         let check = self.http
             .get(format!("{API_BASE}/repos/{}/{REPO_NAME}", self.username))
             .headers(self.api_headers())
@@ -240,8 +244,39 @@ impl GitHubClient {
                 .map_err(|e| format!("Repo create failed: {e}"))?
                 .error_for_status()
                 .map_err(|e| format!("Repo create error: {e}"))?;
+            return Ok(true); // newly created — caller must wait for GitHub to init
         }
-        Ok(())
+        Ok(false)
+    }
+
+    /// Poll until the repo's default branch has at least one commit.
+    /// GitHub initialises repos asynchronously after creation; creating a
+    /// release (or uploading assets) before that completes causes the
+    /// uploads.github.com endpoint to stall indefinitely with no timeout.
+    async fn wait_for_repo_ready(&self) -> Result<(), String> {
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct Branch { name: String }
+
+        for attempt in 0..10u32 {
+            tokio::time::sleep(std::time::Duration::from_millis(500 * (1 << attempt.min(4)))).await;
+
+            let resp = self.http
+                .get(format!("{API_BASE}/repos/{}/{REPO_NAME}/branches", self.username))
+                .headers(self.api_headers())
+                .send()
+                .await
+                .map_err(|e| format!("Repo-ready check failed: {e}"))?;
+
+            if resp.status().is_success() {
+                let branches: Vec<Branch> = resp.json().await
+                    .map_err(|e| format!("Repo-ready parse error: {e}"))?;
+                if !branches.is_empty() {
+                    return Ok(());
+                }
+            }
+        }
+        Err("Timed out waiting for GitHub to initialise the new repository".to_string())
     }
 
     async fn ensure_release(&self) -> Result<u64, String> {
@@ -324,12 +359,21 @@ impl GitHubClient {
     /// Build a fully-initialised client from the OAuth flow. Saves token to keychain.
     pub async fn connect(app: &tauri::AppHandle) -> Result<Self, String> {
         let (token, user_id, username) = oauth_connect(app).await?;
-        let http = reqwest::Client::new();
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("HTTP client error: {e}"))?;
         let mut client = GitHubClient {
             token, user_id, username, release_id: 0,
             encryption_key: [0u8; 32], http,
         };
-        client.ensure_repo().await?;
+        let repo_created = client.ensure_repo().await?;
+        if repo_created {
+            // GitHub initialises the repo asynchronously after creation.  Wait
+            // for the default branch commit to exist before creating a release,
+            // otherwise the uploads.github.com endpoint stalls indefinitely.
+            client.wait_for_repo_ready().await?;
+        }
         client.release_id = client.ensure_release().await?;
         client.encryption_key = client.get_or_create_encryption_key().await?;
         save_token(&client.token, client.user_id, &client.username)?;
@@ -341,7 +385,10 @@ impl GitHubClient {
         let Some((token, user_id, username)) = load_token_parts() else {
             return Ok(None);
         };
-        let http = reqwest::Client::new();
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("HTTP client error: {e}"))?;
         // Verify token is still valid by fetching user info
         if let Err(e) = fetch_user(&http, &token).await {
             eprintln!("[github] token invalid on restore: {e}");
