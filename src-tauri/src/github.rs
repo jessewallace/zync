@@ -354,6 +354,159 @@ impl GitHubClient {
         client.encryption_key = client.get_or_create_encryption_key().await?;
         Ok(Some(client))
     }
+
+    // ── Metadata (Contents API — SHA-locked) ─────────────────────────────────────
+
+    /// Read metadata.json. Returns None if the file doesn't exist yet (first push).
+    pub async fn read_metadata(&self) -> Result<Option<MetadataWithSha>, String> {
+        #[derive(Deserialize)]
+        struct ContentsResp { content: String, sha: String }
+
+        let resp = self.http
+            .get(format!("{API_BASE}/repos/{}/{REPO_NAME}/contents/{METADATA_PATH}", self.username))
+            .headers(self.api_headers())
+            .send()
+            .await
+            .map_err(|e| format!("Metadata fetch failed: {e}"))?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        let c: ContentsResp = resp
+            .error_for_status()
+            .map_err(|e| format!("Metadata fetch error: {e}"))?
+            .json()
+            .await
+            .map_err(|e| format!("Metadata parse error: {e}"))?;
+
+        // GitHub returns base64 with newlines — strip them before decoding
+        let decoded = BASE64.decode(c.content.replace('\n', ""))
+            .map_err(|e| format!("Metadata decode error: {e}"))?;
+        let metadata: SyncMetadata = serde_json::from_slice(&decoded)
+            .map_err(|e| format!("Metadata JSON error: {e}"))?;
+
+        Ok(Some(MetadataWithSha { metadata, sha: c.sha }))
+    }
+
+    /// Write metadata.json. `expected_sha` is the SHA from the previous read;
+    /// pass None only when creating the file for the first time.
+    /// Returns Ok(true) on success, Ok(false) on SHA conflict (another machine pushed).
+    pub async fn write_metadata(
+        &self,
+        metadata: &SyncMetadata,
+        expected_sha: Option<&str>,
+    ) -> Result<bool, String> {
+        let json = serde_json::to_vec(metadata)
+            .map_err(|e| format!("Metadata serialize error: {e}"))?;
+        let content = BASE64.encode(&json);
+
+        let mut body = serde_json::json!({
+            "message": format!("sync: version {}", metadata.version),
+            "content": content,
+        });
+        if let Some(sha) = expected_sha {
+            body["sha"] = serde_json::json!(sha);
+        }
+
+        let resp = self.http
+            .put(format!("{API_BASE}/repos/{}/{REPO_NAME}/contents/{METADATA_PATH}", self.username))
+            .headers(self.api_headers())
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Metadata write failed: {e}"))?;
+
+        if resp.status() == reqwest::StatusCode::CONFLICT {
+            return Ok(false); // SHA mismatch — another machine pushed
+        }
+        resp.error_for_status()
+            .map_err(|e| format!("Metadata write error: {e}"))?;
+        Ok(true)
+    }
+
+    // ── Release asset helpers ─────────────────────────────────────────────────────
+
+    pub async fn get_asset_id(&self, name: &str) -> Result<Option<u64>, String> {
+        #[derive(Deserialize)]
+        struct Asset { id: u64, name: String }
+
+        let assets: Vec<Asset> = self.http
+            .get(format!("{API_BASE}/repos/{}/{REPO_NAME}/releases/{}/assets", self.username, self.release_id))
+            .headers(self.api_headers())
+            .send()
+            .await
+            .map_err(|e| format!("Asset list failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("Asset list error: {e}"))?
+            .json()
+            .await
+            .map_err(|e| format!("Asset list parse error: {e}"))?;
+
+        Ok(assets.into_iter().find(|a| a.name == name).map(|a| a.id))
+    }
+
+    async fn delete_asset(&self, asset_id: u64) -> Result<(), String> {
+        self.http
+            .delete(format!("{API_BASE}/repos/{}/{REPO_NAME}/releases/assets/{asset_id}", self.username))
+            .headers(self.api_headers())
+            .send()
+            .await
+            .map_err(|e| format!("Asset delete failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("Asset delete error: {e}"))?;
+        Ok(())
+    }
+
+    async fn upload_asset(&self, name: &str, data: &[u8], content_type: &str) -> Result<(), String> {
+        self.http
+            .post(format!(
+                "{UPLOAD_BASE}/repos/{}/{REPO_NAME}/releases/{}/assets?name={name}",
+                self.username, self.release_id
+            ))
+            .headers(self.api_headers())
+            .header("Content-Type", content_type)
+            .body(data.to_vec())
+            .send()
+            .await
+            .map_err(|e| format!("Asset upload failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("Asset upload error: {e}"))?;
+        Ok(())
+    }
+
+    pub async fn upload_profile(&self, slot: u8, data: &[u8]) -> Result<(), String> {
+        let name = format!("profile-{slot}.enc");
+        // Delete existing asset for this slot if present (release assets can't be overwritten)
+        if let Some(id) = self.get_asset_id(&name).await? {
+            self.delete_asset(id).await?;
+        }
+        self.upload_asset(&name, data, "application/octet-stream").await
+    }
+
+    pub async fn download_profile(&self, slot: u8) -> Result<Vec<u8>, String> {
+        let name = format!("profile-{slot}.enc");
+        let asset_id = self.get_asset_id(&name).await?
+            .ok_or(format!("Profile asset {name} not found"))?;
+
+        let bytes = self.http
+            .get(format!("{API_BASE}/repos/{}/{REPO_NAME}/releases/assets/{asset_id}", self.username))
+            .headers({
+                let mut h = self.api_headers();
+                h.insert("Accept", "application/octet-stream".parse().unwrap());
+                h
+            })
+            .send()
+            .await
+            .map_err(|e| format!("Profile download failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("Profile download error: {e}"))?
+            .bytes()
+            .await
+            .map_err(|e| format!("Profile read failed: {e}"))?
+            .to_vec();
+        Ok(bytes)
+    }
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
