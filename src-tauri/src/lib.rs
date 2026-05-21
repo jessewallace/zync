@@ -280,12 +280,11 @@ async fn connect_github_cmd(
     state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
 ) -> Result<daemon::SyncStatus, String> {
     let client = github::GitHubClient::connect(&app).await?;
-    let status = {
+    {
         let mut s = state.lock().unwrap();
         s.github_client = Some(Arc::new(client));
-        daemon::get_sync_status_cmd(state.clone())
-    };
-    Ok(status)
+    } // lock released before get_sync_status_cmd re-acquires it
+    Ok(daemon::get_sync_status_cmd(state))
 }
 
 #[tauri::command]
