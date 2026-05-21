@@ -30,13 +30,6 @@ function setStatus(msg, type = "neutral") {
   el.textContent = msg;
 }
 
-function setPairMsg(msg, type = "neutral") {
-  const el = document.getElementById("pair-msg");
-  el.classList.remove("msg-neutral", "msg-error", "msg-success");
-  el.classList.add(type === "error" ? "msg-error" : type === "success" ? "msg-success" : "msg-neutral");
-  el.textContent = msg;
-}
-
 function setLoading(loading) {
   document.getElementById("btn-push").disabled = loading;
   document.getElementById("btn-pull").disabled = loading;
@@ -249,25 +242,6 @@ document.getElementById("pull-input").addEventListener("input", (e) => {
     e.target.addEventListener("animationend", () => e.target.classList.remove("code-valid-flash"), { once: true });
   }
 });
-
-// ── Passphrase generator ──────────────────────────────────────
-
-const WORDS = [
-  "amber","arctic","atlas","azure","birch","blaze","bloom","brave","brook","cedar",
-  "chill","cliff","cloud","coral","crane","crisp","delta","drift","dusk","eagle",
-  "ember","epoch","fern","flame","fleet","flora","frost","gale","glen","grove",
-  "haven","holly","ivory","jade","karma","knoll","lilac","lunar","maple","mist",
-  "nexus","noble","ocean","onyx","opal","orbit","pearl","pine","prism","quest",
-  "raven","reed","ridge","river","sage","scout","solar","steel","stone","swift",
-  "thorn","tide","tiger","tundra","ultra","vault","viper","vivid","walnut","wheat",
-  "wren","xenon","yield","zenith","zinc","acorn","bison","bluff","cobalt","crest",
-];
-
-function generatePassphrase() {
-  const pick = () => WORDS[Math.floor(Math.random() * WORDS.length)];
-  const num = Math.floor(Math.random() * 90) + 10;
-  return `${pick()}-${pick()}-${pick()}-${num}`;
-}
 
 // ── Time helper ───────────────────────────────────────────────
 
