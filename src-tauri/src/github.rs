@@ -205,6 +205,157 @@ pub async fn oauth_connect(app: &tauri::AppHandle) -> Result<(String, u64, Strin
     Ok((token, user_id, username))
 }
 
+// ── GitHubClient impl ─────────────────────────────────────────────────────────
+
+impl GitHubClient {
+    fn api_headers(&self) -> reqwest::header::HeaderMap {
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert("Authorization", format!("Bearer {}", self.token).parse().unwrap());
+        h.insert("Accept", "application/vnd.github+json".parse().unwrap());
+        h.insert("X-GitHub-Api-Version", "2022-11-28".parse().unwrap());
+        h.insert("User-Agent", "zync-app".parse().unwrap());
+        h
+    }
+
+    async fn ensure_repo(&self) -> Result<(), String> {
+        let check = self.http
+            .get(format!("{API_BASE}/repos/{}/{REPO_NAME}", self.username))
+            .headers(self.api_headers())
+            .send()
+            .await
+            .map_err(|e| format!("Repo check failed: {e}"))?;
+
+        if check.status() == reqwest::StatusCode::NOT_FOUND {
+            self.http
+                .post(format!("{API_BASE}/user/repos"))
+                .headers(self.api_headers())
+                .json(&serde_json::json!({
+                    "name": REPO_NAME,
+                    "private": true,
+                    "description": "Zync profile storage — do not modify"
+                }))
+                .send()
+                .await
+                .map_err(|e| format!("Repo create failed: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("Repo create error: {e}"))?;
+        }
+        Ok(())
+    }
+
+    async fn ensure_release(&self) -> Result<u64, String> {
+        #[derive(Deserialize)]
+        struct Release { id: u64 }
+
+        let check = self.http
+            .get(format!("{API_BASE}/repos/{}/{REPO_NAME}/releases/tags/{RELEASE_TAG}", self.username))
+            .headers(self.api_headers())
+            .send()
+            .await
+            .map_err(|e| format!("Release check failed: {e}"))?;
+
+        if check.status() == reqwest::StatusCode::NOT_FOUND {
+            let r: Release = self.http
+                .post(format!("{API_BASE}/repos/{}/{REPO_NAME}/releases", self.username))
+                .headers(self.api_headers())
+                .json(&serde_json::json!({
+                    "tag_name": RELEASE_TAG,
+                    "name": "Zync Storage",
+                    "body": "Managed by Zync — do not modify",
+                    "draft": false,
+                    "prerelease": false
+                }))
+                .send()
+                .await
+                .map_err(|e| format!("Release create failed: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("Release create error: {e}"))?
+                .json()
+                .await
+                .map_err(|e| format!("Release create parse error: {e}"))?;
+            Ok(r.id)
+        } else {
+            let r: Release = check
+                .error_for_status()
+                .map_err(|e| format!("Release fetch error: {e}"))?
+                .json()
+                .await
+                .map_err(|e| format!("Release parse error: {e}"))?;
+            Ok(r.id)
+        }
+    }
+
+    async fn get_or_create_encryption_key(&self) -> Result<[u8; 32], String> {
+        // Try to download existing key asset
+        if let Some(asset_id) = self.get_asset_id(ENCRYPTION_KEY_ASSET).await? {
+            let b64 = self.http
+                .get(format!("{API_BASE}/repos/{}/{REPO_NAME}/releases/assets/{asset_id}", self.username))
+                .headers({
+                    let mut h = self.api_headers();
+                    h.insert("Accept", "application/octet-stream".parse().unwrap());
+                    h
+                })
+                .send()
+                .await
+                .map_err(|e| format!("Key download failed: {e}"))?
+                .text()
+                .await
+                .map_err(|e| format!("Key read failed: {e}"))?;
+            let bytes = BASE64.decode(b64.trim())
+                .map_err(|e| format!("Key decode failed: {e}"))?;
+            if bytes.len() != 32 {
+                return Err(format!("Encryption key wrong length: {}", bytes.len()));
+            }
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&bytes);
+            return Ok(key);
+        }
+
+        // Generate and upload new key
+        use rand::RngCore;
+        let mut key = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut key);
+        let b64 = BASE64.encode(&key);
+        self.upload_asset(ENCRYPTION_KEY_ASSET, b64.as_bytes(), "text/plain").await?;
+        Ok(key)
+    }
+
+    /// Build a fully-initialised client from the OAuth flow. Saves token to keychain.
+    pub async fn connect(app: &tauri::AppHandle) -> Result<Self, String> {
+        let (token, user_id, username) = oauth_connect(app).await?;
+        let http = reqwest::Client::new();
+        let mut client = GitHubClient {
+            token, user_id, username, release_id: 0,
+            encryption_key: [0u8; 32], http,
+        };
+        client.ensure_repo().await?;
+        client.release_id = client.ensure_release().await?;
+        client.encryption_key = client.get_or_create_encryption_key().await?;
+        save_token(&client.token, client.user_id, &client.username)?;
+        Ok(client)
+    }
+
+    /// Restore a client from the keychain on app startup. Returns None if not connected.
+    pub async fn from_keychain() -> Result<Option<Self>, String> {
+        let Some((token, user_id, username)) = load_token_parts() else {
+            return Ok(None);
+        };
+        let http = reqwest::Client::new();
+        // Verify token is still valid by fetching user info
+        if let Err(e) = fetch_user(&http, &token).await {
+            eprintln!("[github] token invalid on restore: {e}");
+            return Ok(None);
+        }
+        let mut client = GitHubClient {
+            token, user_id, username, release_id: 0,
+            encryption_key: [0u8; 32], http,
+        };
+        client.release_id = client.ensure_release().await?;
+        client.encryption_key = client.get_or_create_encryption_key().await?;
+        Ok(Some(client))
+    }
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
