@@ -87,24 +87,16 @@ pub fn run() {
                 }
             });
 
-            // First run: show window so user can enter passphrase
-            let data_dir = app.path().app_data_dir().unwrap_or_default();
-            if !pairing::is_paired_flag(&data_dir) {
+            // First run: show window so user can connect GitHub
+            if !github::has_stored_token() {
                 window.show().unwrap();
                 let _ = window.set_focus();
             }
 
-            // Populate passphrase cache for existing users. Runs after the window-show
-            // decision so any keychain prompt appears with the window visible.
+            // Populate passphrase cache for existing users — no-op in GitHub backend.
+            // TODO(github-sync-redesign): load GitHub token into daemon state in Task 10.
             {
-                let data_dir_for_cache = data_dir.clone();
-                tauri::async_runtime::spawn(async move {
-                    if pairing::is_paired_flag(&data_dir_for_cache) {
-                        if let Ok(Some(p)) = pairing::load_passphrase() {
-                            state_for_cache.lock().unwrap().passphrase = Some(p);
-                        }
-                    }
-                });
+                let _state_for_cache = state_for_cache;
             }
 
             // Enable launch-on-login whenever the app runs
@@ -264,46 +256,28 @@ fn get_cached_passphrase_cmd(
 }
 
 #[tauri::command]
-fn is_paired_cmd(app: tauri::AppHandle) -> bool {
-    match app.path().app_data_dir() {
-        Ok(dir) => pairing::is_paired_flag(&dir),
-        Err(_) => false,
-    }
+fn is_paired_cmd(_app: tauri::AppHandle) -> bool {
+    github::has_stored_token()
 }
 
 #[tauri::command]
 fn save_passphrase_and_cache_cmd(
-    app: tauri::AppHandle,
-    passphrase: String,
-    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+    _app: tauri::AppHandle,
+    _passphrase: String,
+    _state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
 ) -> Result<(), String> {
-    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    pairing::save_passphrase(&passphrase)?;
-    pairing::write_paired_flag(&data_dir)?;
-    {
-        let mut s = state.lock().unwrap();
-        s.passphrase = Some(passphrase);
-        // Reset so the initial push waits for the first ntfy poll with this passphrase.
-        // Prevents a newly paired machine from overwriting peers before checking for
-        // their data (the old startup_ticks guard only worked on fresh app start).
-        s.ntfy_polled_since_pair = false;
-        s.pulled_this_session = false;
-    }
-    // Poll ntfy immediately so the initial push gate clears within seconds,
-    // not at the next 60-second cycle boundary.
-    daemon::trigger_ntfy_poll_now(app, state.inner().clone());
+    // TODO(github-sync-redesign): pairing via passphrase removed; GitHub token flow
+    // replaces this in Task 10. This command is kept for API compatibility.
     Ok(())
 }
 
 #[tauri::command]
 fn clear_passphrase_and_cache_cmd(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+    _app: tauri::AppHandle,
+    _state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
 ) -> Result<(), String> {
-    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    pairing::clear_passphrase()?;
-    pairing::clear_paired_flag(&data_dir)?;
-    state.lock().unwrap().passphrase = None;
+    // TODO(github-sync-redesign): passphrase-based pairing removed; GitHub token
+    // revocation will be handled in Task 10.
     Ok(())
 }
 
