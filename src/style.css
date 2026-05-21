@@ -708,5 +708,5 @@ input[type="text"]::placeholder {
 .snapshot-date { font-size: 11px; color: var(--text-muted, #888); }
 .snapshot-size { font-size: 11px; color: var(--text-muted, #888); }
 .btn-restore { padding: 4px 10px; font-size: 12px; width: auto; }
-.error-msg { color: var(--error, #e05050); font-size: 12px; min-height: 1em; }
+.error-msg { color: var(--error-text, #b80000); font-size: 12px; min-height: 1em; }
 .text-input { width: 100%; box-sizing: border-box; }

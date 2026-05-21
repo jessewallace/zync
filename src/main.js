@@ -243,18 +243,6 @@ document.getElementById("pull-input").addEventListener("input", (e) => {
   }
 });
 
-// ── Time helper ───────────────────────────────────────────────
-
-function timeAgo(unixSecs) {
-  const diff = Math.floor(Date.now() / 1000) - unixSecs;
-  if (diff <= 0)    return "just now";
-  if (diff < 60)    return "just now";
-  if (diff < 3600)  return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
-  const days = Math.floor(diff / 86400);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
 // ── Sync tab ──────────────────────────────────────────────────────────────────
 
 const syncDisconnected = document.getElementById('sync-disconnected');
@@ -287,6 +275,7 @@ async function loadSyncStatus() {
       showSyncState('disconnected');
     }
   } catch (e) {
+    document.getElementById('sync-connect-error').textContent = String(e);
     showSyncState('disconnected');
   }
 }
@@ -294,6 +283,7 @@ async function loadSyncStatus() {
 document.getElementById('btn-connect-github').addEventListener('click', async () => {
   const btn = document.getElementById('btn-connect-github');
   const err = document.getElementById('sync-connect-error');
+  document.getElementById('sync-connect-error').textContent = '';
   btn.disabled = true;
   btn.textContent = 'Connecting…';
   err.textContent = '';
@@ -301,26 +291,28 @@ document.getElementById('btn-connect-github').addEventListener('click', async ()
     await invoke('connect_github_cmd');
     await loadSyncStatus();
   } catch (e) {
-    err.textContent = e;
+    err.textContent = String(e);
     btn.disabled = false;
     btn.textContent = 'Connect GitHub';
   }
 });
 
 document.getElementById('btn-disconnect').addEventListener('click', async () => {
+  document.getElementById('sync-main-error').textContent = '';
   try {
     await invoke('disconnect_github_cmd');
     showSyncState('disconnected');
   } catch (e) {
-    document.getElementById('sync-main-error').textContent = e;
+    document.getElementById('sync-main-error').textContent = String(e);
   }
 });
 
 document.getElementById('input-machine-name').addEventListener('change', async (ev) => {
+  document.getElementById('sync-main-error').textContent = '';
   try {
     await invoke('set_machine_name_cmd', { name: ev.target.value });
   } catch (e) {
-    document.getElementById('sync-main-error').textContent = e;
+    document.getElementById('sync-main-error').textContent = String(e);
   }
 });
 
@@ -332,7 +324,7 @@ document.getElementById('btn-restore-version').addEventListener('click', async (
     renderSnapshotList(snapshots);
     showSyncState('rollback');
   } catch (e) {
-    err.textContent = e;
+    err.textContent = String(e);
   }
 });
 
@@ -343,6 +335,14 @@ document.getElementById('btn-back-rollback').addEventListener('click', () => {
 function renderSnapshotList(snapshots) {
   const list = document.getElementById('snapshot-list');
   list.innerHTML = '';
+  if (snapshots.length === 0) {
+    const empty = document.createElement('p');
+    empty.style.color = 'var(--text-muted, #888)';
+    empty.style.fontSize = '13px';
+    empty.textContent = 'No snapshots yet.';
+    list.appendChild(empty);
+    return;
+  }
   snapshots.forEach(snap => {
     const row = document.createElement('div');
     row.className = 'snapshot-row';
@@ -358,10 +358,11 @@ function renderSnapshotList(snapshots) {
     machine.textContent = snap.machineName;
     const date = document.createElement('div');
     date.className = 'snapshot-date';
-    date.textContent = new Date(snap.pushedAt).toLocaleString();
+    const d = new Date(snap.pushedAt);
+    date.textContent = isNaN(d.getTime()) ? snap.pushedAt : d.toLocaleString();
     const size = document.createElement('div');
     size.className = 'snapshot-size';
-    size.textContent = `${snap.sizeMb.toFixed(1)} MB`;
+    size.textContent = snap.sizeMb != null ? `${snap.sizeMb.toFixed(1)} MB` : '';
     info.appendChild(machine);
     info.appendChild(date);
     info.appendChild(size);
@@ -380,7 +381,7 @@ function renderSnapshotList(snapshots) {
           showSyncState('connected');
           await loadSyncStatus();
         } catch (e) {
-          document.getElementById('rollback-error').textContent = e;
+          document.getElementById('rollback-error').textContent = String(e);
           btn.disabled = false;
           btn.textContent = 'Restore';
         }
