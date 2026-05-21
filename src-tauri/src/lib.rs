@@ -115,8 +115,6 @@ pub fn run() {
             sync::pull_profile,
             get_cached_passphrase_cmd,
             daemon::get_sync_status_cmd,
-            daemon::set_auto_push_cmd,
-            daemon::set_auto_pull_cmd,
             daemon::manual_sync_now_cmd,
             install_update,
             is_paired_cmd,
@@ -250,9 +248,10 @@ fn rebuild_tray_with_update(app: &tauri::AppHandle, version: &str) {
 
 #[tauri::command]
 fn get_cached_passphrase_cmd(
-    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+    _state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
 ) -> Option<String> {
-    state.lock().unwrap().passphrase.clone()
+    // TODO(github-sync-redesign): passphrase-based pairing removed; always returns None.
+    None
 }
 
 #[tauri::command]

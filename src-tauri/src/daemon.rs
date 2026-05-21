@@ -1,70 +1,46 @@
+#[allow(unused_imports)]
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
 
-use crate::{ntfy, pairing, sync, zen_check};
-
 // ── State ─────────────────────────────────────────────────────────────────────
 
 pub struct DaemonState {
-    pub auto_push_enabled: bool,
-    pub auto_pull_enabled: bool,
-    /// Last ntfy message ID we processed — used as `since` on next poll.
-    pub last_ntfy_id: Option<String>,
-    /// Unix timestamp of the end of the last ntfy poll. Used as `since` when
-    /// no message ID exists yet, so messages published between polls are not skipped.
-    pub last_poll_time: u64,
-    /// File ID from ntfy that arrived while Zen was open — waiting for Zen to close.
-    pub pending_file_id: Option<String>,
+    /// Connected GitHub client. None until the user connects via OAuth.
+    pub github_client: Option<std::sync::Arc<crate::github::GitHubClient>>,
+    /// Persisted state (last_known_version, machine_name).
+    pub local_state: crate::local_state::LocalState,
+    /// Guard against concurrent syncs.
+    pub is_syncing: Arc<AtomicBool>,
     /// Unix timestamp of last successful push or pull.
     pub last_synced: Option<u64>,
-    /// When to re-upload the profile to keep the Litterbox link alive.
-    pub refresh_at: Option<std::time::Instant>,
+    /// Machine name of last sync source (None = this machine pushed).
+    pub last_synced_from: Option<String>,
     /// Previous Zen running state (used for edge detection).
     pub zen_was_running: bool,
-    pub is_pushing: Arc<AtomicBool>,
-    /// Count of successful auto-pulls received from peers this session. Resets on restart.
-    pub sync_count: u32,
-    /// Cached passphrase — loaded once from the OS keychain so daemon loops never
-    /// hit the keychain (which can trigger macOS security prompts).
-    pub passphrase: Option<String>,
-    /// File ID we most recently published to ntfy — skipped by the ntfy poller to
-    /// prevent a machine from pulling its own push.
-    pub last_published_file_id: Option<String>,
-    /// Set after the first ntfy poll attempt with the current passphrase completes
-    /// (success or network error). The initial push is gated on this flag so that a
-    /// newly paired machine always checks for peer data before pushing its own profile.
-    pub ntfy_polled_since_pair: bool,
-    /// Set when a pull succeeds this session. Suppresses the initial push so we don't
-    /// overwrite a profile we just received from a peer on startup.
-    pub pulled_this_session: bool,
-    /// Count of successful auto-pushes sent to peers this session.
-    pub push_count: u32,
-    /// Set when Zen opens after a push; cleared after each push.
-    /// Refresh re-uploads are suppressed until Zen has been opened again,
-    /// preventing repeated uploads when the profile hasn't changed.
-    pub zen_opened_since_last_push: bool,
+    /// Last ntfy message ID processed.
+    pub last_ntfy_id: Option<String>,
+    /// Unix timestamp of last ntfy poll start (fallback since value).
+    pub last_poll_time: u64,
+    /// Version number received from ntfy while Zen was open — drain when Zen closes.
+    pub pending_version: Option<u32>,
+    /// Tauri app config dir — used to save local_state to disk.
+    pub config_dir: std::path::PathBuf,
 }
 
 impl Default for DaemonState {
     fn default() -> Self {
         Self {
-            auto_push_enabled: true,
-            auto_pull_enabled: true,
+            github_client: None,
+            local_state: crate::local_state::LocalState::default(),
+            is_syncing: Arc::new(AtomicBool::new(false)),
+            last_synced: None,
+            last_synced_from: None,
+            zen_was_running: false,
             last_ntfy_id: None,
             last_poll_time: 0,
-            pending_file_id: None,
-            last_synced: None,
-            refresh_at: None,
-            zen_was_running: false,
-            is_pushing: Arc::new(AtomicBool::new(false)),
-            sync_count: 0,
-            passphrase: None,
-            last_published_file_id: None,
-            ntfy_polled_since_pair: false,
-            pulled_this_session: false,
-            push_count: 0,
-            zen_opened_since_last_push: false,
+            pending_version: None,
+            config_dir: std::path::PathBuf::new(),
         }
     }
 }
@@ -72,10 +48,13 @@ impl Default for DaemonState {
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
 #[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
-    pub sync_count: u32,
-    pub push_count: u32,
+    pub connected: bool,
+    pub username: Option<String>,
     pub last_synced: Option<u64>,
+    pub last_synced_from: Option<String>,
+    pub machine_name: String,
 }
 
 #[tauri::command]
@@ -83,56 +62,33 @@ pub fn get_sync_status_cmd(
     state: tauri::State<Arc<Mutex<DaemonState>>>,
 ) -> SyncStatus {
     let s = state.lock().unwrap();
-    SyncStatus { sync_count: s.sync_count, push_count: s.push_count, last_synced: s.last_synced }
-}
-
-#[tauri::command]
-pub fn set_auto_push_cmd(enabled: bool, state: tauri::State<Arc<Mutex<DaemonState>>>) {
-    state.lock().unwrap().auto_push_enabled = enabled;
-}
-
-#[tauri::command]
-pub fn set_auto_pull_cmd(enabled: bool, state: tauri::State<Arc<Mutex<DaemonState>>>) {
-    state.lock().unwrap().auto_pull_enabled = enabled;
+    SyncStatus {
+        connected: s.github_client.is_some(),
+        username: s.github_client.as_ref().map(|c| c.username.clone()),
+        last_synced: s.last_synced,
+        last_synced_from: s.last_synced_from.clone(),
+        machine_name: s.local_state.machine_name.clone(),
+    }
 }
 
 #[tauri::command]
 pub async fn manual_sync_now_cmd(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<Mutex<DaemonState>>>,
+    _app: tauri::AppHandle,
+    _state: tauri::State<'_, Arc<Mutex<DaemonState>>>,
 ) -> Result<(), String> {
-    if zen_check::is_zen_running() {
-        return Err("Zen is running — close it before syncing".into());
-    }
-    let passphrase = state.lock().unwrap().passphrase.clone()
-        .ok_or("No passphrase set — configure pairing in Settings first")?;
-    trigger_push(&app, &state, &passphrase, false).await
+    Err("Not yet implemented".into())
 }
 
 // ── Push helper ───────────────────────────────────────────────────────────────
 
-/// Upload the current profile and publish the file ID to ntfy.
-/// Updates `last_synced` and `refresh_at` on success.
-/// Returns immediately (Ok) if another push is already in flight.
-/// `is_refresh` — true for 55-min keepalive re-uploads (skips count/event update).
+// TODO(task-10): will be fully rewritten
 pub async fn trigger_push(
-    app: &tauri::AppHandle,
-    state: &Arc<Mutex<DaemonState>>,
-    passphrase: &str,
-    is_refresh: bool,
+    _app: &tauri::AppHandle,
+    _state: &Arc<Mutex<DaemonState>>,
+    _passphrase: &str,
+    _is_refresh: bool,
 ) -> Result<(), String> {
-    let is_pushing = state.lock().unwrap().is_pushing.clone();
-    if is_pushing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
-        return Ok(()); // Another push is in flight; skip silently
-    }
-
-    // TODO(github-sync-redesign): trigger_push will be rewritten to use github_push.
-    let result: Result<(), String> = async {
-        Err("Auto-sync not yet implemented for GitHub backend".to_string())
-    }.await;
-
-    is_pushing.store(false, Ordering::SeqCst);
-    result
+    Err("Not yet implemented".into())
 }
 
 // ── Background loops ──────────────────────────────────────────────────────────
@@ -142,255 +98,30 @@ pub async fn trigger_push(
 ///   - ntfy poller (every 60 s) — pulls new profiles from other machines
 ///   - Refresh timer (checked every 5 min) — re-uploads to keep link alive
 pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
-    // Initialize last_poll_time to 1 hour ago so the first ntfy poll catches
-    // any push that happened while this machine had Zync closed.
-    {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        state.lock().unwrap().last_poll_time = now.saturating_sub(3600);
-    }
-
-    // Zen process watcher (every 5 s)
     {
         let app = app.clone();
         let state = state.clone();
         tauri::async_runtime::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(5));
-            loop {
-                interval.tick().await;
-                zen_watcher_tick(&app, &state).await;
-            }
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            loop { interval.tick().await; zen_watcher_tick(&app, &state).await; }
         });
     }
-
-    // ntfy poller (every 60 s)
     {
         let app = app.clone();
         let state = state.clone();
         tauri::async_runtime::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(60));
-            loop {
-                interval.tick().await;
-                ntfy_poll_tick(&app, &state).await;
-            }
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop { interval.tick().await; ntfy_poll_tick(&app, &state).await; }
         });
     }
-
-    // Refresh timer (checked every 5 min)
-    {
-        let app = app.clone();
-        let state = state.clone();
-        tauri::async_runtime::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(5 * 60));
-            loop {
-                interval.tick().await;
-                refresh_tick(&app, &state).await;
-            }
-        });
-    }
-}
-
-/// Spawn a one-shot ntfy poll immediately. Used by `save_passphrase_and_cache_cmd`
-/// so that a newly paired machine checks for peer data before its initial push.
-pub fn trigger_ntfy_poll_now(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
-    tauri::async_runtime::spawn(async move {
-        ntfy_poll_tick(&app, &state).await;
-    });
 }
 
 // ── Tick helpers ──────────────────────────────────────────────────────────────
 
-/// Detect the Zen→closed edge. If auto-push is enabled, triggers a push and
-/// discards any queued pull (local session wins). If auto-push is disabled but
-/// auto-pull is enabled, drains the queued pull instead.
-async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let passphrase = match state.lock().unwrap().passphrase.clone() {
-        Some(p) => p,
-        None => return,
-    };
-
-    let zen_running = zen_check::is_zen_running();
-
-    let (was_running, auto_push_enabled, auto_pull_enabled) = {
-        let mut s = state.lock().unwrap();
-        let was = s.zen_was_running;
-        s.zen_was_running = zen_running;
-        // Zen just opened — mark that the profile may change, enabling future refresh.
-        if !was && zen_running {
-            s.zen_opened_since_last_push = true;
-        }
-        (was, s.auto_push_enabled, s.auto_pull_enabled)
-    };
-
-    // Zen just closed
-    if was_running && !zen_running {
-        // Always consume the pending slot — if a peer pushed while Zen was open,
-        // their data is newer than our local session and takes priority.
-        let pending = state.lock().unwrap().pending_file_id.take();
-
-        if let Some(file_id) = pending {
-            // We have a queued file ID from a peer. Only treat it as authoritative
-            // if we haven't pushed this session — if push_count > 0 we already
-            // contributed data and our local profile is the newer source.
-            let already_pushed = state.lock().unwrap().push_count > 0;
-            if auto_pull_enabled && !already_pushed {
-                // TODO(github-sync-redesign): zen_watcher drain-pull will be rewritten to use github_pull.
-                show_notification(app, "Auto-pull not yet implemented for GitHub backend");
-            } else if auto_push_enabled {
-                // We already pushed this session — our local profile is authoritative.
-                // Push again so our data wins over any stale peer push.
-                if let Err(e) = trigger_push(app, state, &passphrase, false).await {
-                    show_notification(app, &format!("Auto-push failed: {e}"));
-                }
-            }
-        } else if auto_push_enabled {
-            // No pending pull — safe to push our local session.
-            if let Err(e) = trigger_push(app, state, &passphrase, false).await {
-                show_notification(app, &format!("Auto-push failed: {e}"));
-            }
-        }
-        return;
-    }
-
-    // Initial push: if Zen has been closed since we started watching (not the
-    // close edge above) and we haven't pushed yet this session, push now.
-    // Gated on ntfy_polled_since_pair so a newly paired machine always checks
-    // for peer data before pushing — this replaces the old startup_ticks guard,
-    // which was ineffective when the passphrase was set mid-session (startup_ticks
-    // was already large and the initial push fired before the 60-s ntfy cycle ran).
-    // If auto-pull is disabled there is nothing to wait for; push immediately.
-    if auto_push_enabled && !zen_running && !was_running {
-        let needs_initial_push = {
-            let s = state.lock().unwrap();
-            let polled_or_no_pull = s.ntfy_polled_since_pair || !s.auto_pull_enabled;
-            s.refresh_at.is_none() && !s.pulled_this_session && polled_or_no_pull
-        };
-        if needs_initial_push {
-            eprintln!("[zync] initial push: starting");
-            match trigger_push(app, state, &passphrase, false).await {
-                Ok(()) => eprintln!("[zync] initial push: ok"),
-                Err(e) => eprintln!("[zync] initial push: failed: {e}"),
-            }
-        }
-    }
-}
-
-/// Poll ntfy for new file IDs. Pull immediately if Zen is closed; queue if open.
-async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let (passphrase, since) = {
-        let s = state.lock().unwrap();
-        let p = match s.passphrase.clone() { Some(p) => p, None => return };
-        if !s.auto_pull_enabled { return; }
-        // Prefer the last message ID (ntfy advances from that point).
-        // Fall back to last_poll_time so messages published between polls are not skipped.
-        let since = s.last_ntfy_id.clone()
-            .unwrap_or_else(|| s.last_poll_time.to_string());
-        (p, since)
-    };
-
-    // Capture the start time BEFORE the HTTP call. If a message is published
-    // during the network round-trip it will have a timestamp >= poll_start,
-    // so the next iteration (using poll_start as `since`) will catch it.
-    let poll_start = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let topic = pairing::derive_ntfy_topic(&passphrase);
-    eprintln!("[zync] ntfy poll: since={since} topic={}...", &topic[..8]);
-    let messages = match ntfy::poll_since(&topic, &since).await {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("ntfy poll error: {e}");
-            {
-                let mut s = state.lock().unwrap();
-                // Advance last_poll_time even on error so recovery doesn't re-fetch ancient messages.
-                s.last_poll_time = poll_start;
-                // Allow the initial push to proceed even when ntfy is unreachable.
-                s.ntfy_polled_since_pair = true;
-            }
-            return;
-        }
-    };
-
-    eprintln!("[zync] ntfy poll: {} message(s) found", messages.len());
-    {
-        let mut s = state.lock().unwrap();
-        s.last_poll_time = poll_start;
-        s.ntfy_polled_since_pair = true;
-    }
-
-    // Use the message with the highest timestamp in case ntfy ever returns
-    // messages out of arrival order (e.g., two machines push simultaneously).
-    let Some(latest) = messages.iter().max_by_key(|m| m.time) else { return };
-
-    state.lock().unwrap().last_ntfy_id = Some(latest.id.clone());
-
-    let file_id = latest.message.trim().to_string();
-
-    // Skip if this is a file ID we published ourselves — prevents a machine
-    // from pulling its own push and inflating the sync count.
-    let is_own_push = state.lock().unwrap()
-        .last_published_file_id.as_deref() == Some(file_id.as_str());
-    if is_own_push {
-        eprintln!("[zync] ntfy poll: skipping own file_id={file_id}");
-        return;
-    }
-
-    let zen_running = zen_check::is_zen_running();
-    eprintln!("[zync] ntfy poll: file_id={file_id} zen_running={zen_running}");
-
-    if zen_running {
-        state.lock().unwrap().pending_file_id = Some(file_id);
-        show_notification(app, "New profile available — will pull when Zen closes");
-    } else {
-        // TODO(github-sync-redesign): ntfy auto-pull will be rewritten to use github_pull.
-        eprintln!("[zync] auto-pull not yet implemented for GitHub backend (file_id={file_id})");
-        show_notification(app, "Auto-pull not yet implemented for GitHub backend");
-    }
-}
-
-/// Re-upload the profile every 55 min to keep the Litterbox link alive.
-/// If Zen is open, defers the refresh by 5 min.
-async fn refresh_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let (passphrase, auto_push_enabled) = {
-        let s = state.lock().unwrap();
-        let p = match s.passphrase.clone() { Some(p) => p, None => return };
-        (p, s.auto_push_enabled)
-    };
-    if !auto_push_enabled {
-        return;
-    }
-
-    let should_refresh = {
-        let s = state.lock().unwrap();
-        s.zen_opened_since_last_push
-            && s.refresh_at
-                .map(|d| std::time::Instant::now() >= d)
-                .unwrap_or(false)
-    };
-
-    if !should_refresh {
-        return;
-    }
-
-    if zen_check::is_zen_running() {
-        let mut s = state.lock().unwrap();
-        if s.refresh_at.is_some() {
-            s.refresh_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(5 * 60));
-        }
-        return;
-    }
-
-    if let Err(e) = trigger_push(app, state, &passphrase, true).await {
-        show_notification(app, &format!("Refresh failed: {e}"));
-    }
-}
+// TODO(task-10): will be fully rewritten
+async fn zen_watcher_tick(_app: &tauri::AppHandle, _state: &Arc<Mutex<DaemonState>>) {}
+async fn ntfy_poll_tick(_app: &tauri::AppHandle, _state: &Arc<Mutex<DaemonState>>) {}
+async fn refresh_tick(_app: &tauri::AppHandle, _state: &Arc<Mutex<DaemonState>>) {}
 
 // ── Notification helper ───────────────────────────────────────────────────────
 
@@ -406,14 +137,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sync_count_defaults_to_zero() {
+    fn daemon_state_defaults() {
         let state = DaemonState::default();
-        assert_eq!(state.sync_count, 0);
-    }
-
-    #[test]
-    fn passphrase_defaults_to_none() {
-        let state = DaemonState::default();
-        assert!(state.passphrase.is_none());
+        assert!(state.github_client.is_none());
+        assert_eq!(state.local_state.last_known_version, 0);
+        assert!(state.pending_version.is_none());
+        assert!(state.last_synced.is_none());
+        assert!(!state.zen_was_running);
     }
 }
