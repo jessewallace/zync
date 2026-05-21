@@ -93,10 +93,26 @@ pub fn run() {
                 let _ = window.set_focus();
             }
 
-            // Populate passphrase cache for existing users — no-op in GitHub backend.
-            // TODO(github-sync-redesign): load GitHub token into daemon state in Task 10.
+            let config_dir = app.path().app_config_dir().unwrap_or_default();
             {
-                let _state_for_cache = state_for_cache;
+                let mut s = state_for_cache.lock().unwrap();
+                s.config_dir = config_dir.clone();
+                s.local_state = crate::local_state::LocalState::load(&config_dir);
+            }
+
+            // Restore GitHub client from keychain in the background
+            {
+                let state_clone = state_for_cache.clone();
+                tauri::async_runtime::spawn(async move {
+                    match github::GitHubClient::from_keychain().await {
+                        Ok(Some(client)) => {
+                            state_clone.lock().unwrap().github_client = Some(Arc::new(client));
+                            eprintln!("[zync] GitHub client restored from keychain");
+                        }
+                        Ok(None) => eprintln!("[zync] No GitHub token found"),
+                        Err(e) => eprintln!("[zync] GitHub restore failed: {e}"),
+                    }
+                });
             }
 
             // Enable launch-on-login whenever the app runs
@@ -113,13 +129,14 @@ pub fn run() {
             profile::collect_sync_files,
             sync::push_profile,
             sync::pull_profile,
-            get_cached_passphrase_cmd,
             daemon::get_sync_status_cmd,
             daemon::manual_sync_now_cmd,
+            connect_github_cmd,
+            disconnect_github_cmd,
+            get_snapshots_cmd,
+            restore_snapshot_cmd,
+            set_machine_name_cmd,
             install_update,
-            is_paired_cmd,
-            save_passphrase_and_cache_cmd,
-            clear_passphrase_and_cache_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -246,38 +263,110 @@ fn rebuild_tray_with_update(app: &tauri::AppHandle, version: &str) {
     }
 }
 
-#[tauri::command]
-fn get_cached_passphrase_cmd(
-    _state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
-) -> Option<String> {
-    // TODO(github-sync-redesign): passphrase-based pairing removed; always returns None.
-    None
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotInfo {
+    pub slot: u8,
+    pub version: u32,
+    pub pushed_at: String,
+    pub machine_name: String,
+    pub size_mb: f32,
+    pub is_current: bool,
 }
 
 #[tauri::command]
-fn is_paired_cmd(_app: tauri::AppHandle) -> bool {
-    github::has_stored_token()
+async fn connect_github_cmd(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Result<daemon::SyncStatus, String> {
+    let client = github::GitHubClient::connect(&app).await?;
+    let status = {
+        let mut s = state.lock().unwrap();
+        s.github_client = Some(Arc::new(client));
+        daemon::get_sync_status_cmd(state.clone())
+    };
+    Ok(status)
 }
 
 #[tauri::command]
-fn save_passphrase_and_cache_cmd(
-    _app: tauri::AppHandle,
-    _passphrase: String,
-    _state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+fn disconnect_github_cmd(
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
 ) -> Result<(), String> {
-    // TODO(github-sync-redesign): pairing via passphrase removed; GitHub token flow
-    // replaces this in Task 10. This command is kept for API compatibility.
+    github::remove_stored_token()?;
+    state.lock().unwrap().github_client = None;
     Ok(())
 }
 
 #[tauri::command]
-fn clear_passphrase_and_cache_cmd(
-    _app: tauri::AppHandle,
-    _state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+async fn get_snapshots_cmd(
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Result<Vec<SnapshotInfo>, String> {
+    let client = state.lock().unwrap().github_client.clone()
+        .ok_or("Not connected to GitHub")?;
+    let metadata = client.read_metadata().await?
+        .ok_or("No sync data found — push from another machine first")?;
+    let current_slot = metadata.metadata.current_slot;
+    let infos = metadata.metadata.slots.iter().map(|s| SnapshotInfo {
+        slot: s.slot,
+        version: s.version,
+        pushed_at: s.pushed_at.clone(),
+        machine_name: s.machine_name.clone(),
+        size_mb: s.size_bytes as f32 / 1_048_576.0,
+        is_current: s.slot == current_slot,
+    }).collect();
+    Ok(infos)
+}
+
+#[tauri::command]
+async fn restore_snapshot_cmd(
+    slot: u8,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
 ) -> Result<(), String> {
-    // TODO(github-sync-redesign): passphrase-based pairing removed; GitHub token
-    // revocation will be handled in Task 10.
-    Ok(())
+    if zen_check::is_zen_running() {
+        return Err("Close Zen before restoring a snapshot.".into());
+    }
+    let (client, machine_name, last_known, config_dir) = {
+        let s = state.lock().unwrap();
+        let c = s.github_client.clone().ok_or("Not connected to GitHub")?;
+        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version, s.config_dir.clone())
+    };
+
+    sync::github_pull(&client, slot).await?;
+
+    match sync::github_push(&client, &machine_name, last_known).await {
+        Ok(Some((new_version, _))) => {
+            let topic = pairing::derive_ntfy_topic(&client.user_id.to_string());
+            let _ = ntfy::publish_version(&topic, new_version).await;
+            {
+                let mut s = state.lock().unwrap();
+                s.local_state.last_known_version = new_version;
+                s.last_synced = Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                );
+                s.last_synced_from = None;
+                let _ = s.local_state.save(&config_dir);
+            }
+            let _ = app.emit("sync-updated", ());
+            Ok(())
+        }
+        Ok(None) => Err("Another machine pushed while restoring — try again".into()),
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+fn set_machine_name_cmd(
+    name: String,
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Result<(), String> {
+    let mut s = state.lock().unwrap();
+    s.local_state.machine_name = name;
+    let config_dir = s.config_dir.clone();
+    s.local_state.save(&config_dir)
 }
 
 fn setup_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
