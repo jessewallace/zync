@@ -1,5 +1,7 @@
 mod crypto;
 mod daemon;
+mod github;
+mod local_state;
 mod ntfy;
 mod pairing;
 mod profile;
@@ -46,6 +48,8 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_oauth::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let tray_menu = setup_tray(app)?;
             app.manage(Arc::new(TrayMenuState { menu: tray_menu }));
