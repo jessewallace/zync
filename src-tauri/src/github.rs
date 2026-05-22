@@ -2,9 +2,14 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 
 const KEYCHAIN_SERVICE: &str = "zync";
-const KEYCHAIN_GITHUB_TOKEN: &str = "github_token";
-const KEYCHAIN_GITHUB_USER_ID: &str = "github_user_id";
-const KEYCHAIN_GITHUB_USERNAME: &str = "github_username";
+const KEYCHAIN_ACCOUNT: &str = "github";
+
+#[derive(Serialize, Deserialize)]
+struct StoredCredentials {
+    token: String,
+    user_id: u64,
+    username: String,
+}
 
 pub const GITHUB_CLIENT_ID: &str = env!("GITHUB_CLIENT_ID");
 const GITHUB_CLIENT_SECRET: &str = env!("GITHUB_CLIENT_SECRET");
@@ -62,49 +67,37 @@ pub struct GitHubClient {
 // ── Token management ──────────────────────────────────────────────────────────
 
 pub fn has_stored_token() -> bool {
-    keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_GITHUB_TOKEN)
+    keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
         .ok()
         .and_then(|e| e.get_password().ok())
         .is_some()
 }
 
 fn save_token(token: &str, user_id: u64, username: &str) -> Result<(), String> {
-    for (account, value) in [
-        (KEYCHAIN_GITHUB_TOKEN, token.to_string()),
-        (KEYCHAIN_GITHUB_USER_ID, user_id.to_string()),
-        (KEYCHAIN_GITHUB_USERNAME, username.to_string()),
-    ] {
-        keyring::Entry::new(KEYCHAIN_SERVICE, account)
-            .map_err(|e| format!("Keychain error: {e}"))?
-            .set_password(&value)
-            .map_err(|e| format!("Failed to save {account}: {e}"))?;
-    }
-    Ok(())
+    let creds = StoredCredentials { token: token.to_string(), user_id, username: username.to_string() };
+    let json = serde_json::to_string(&creds).map_err(|e| format!("Credential serialize error: {e}"))?;
+    keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|e| format!("Keychain error: {e}"))?
+        .set_password(&json)
+        .map_err(|e| format!("Failed to save credentials: {e}"))
 }
 
 pub fn remove_stored_token() -> Result<(), String> {
-    for account in [KEYCHAIN_GITHUB_TOKEN, KEYCHAIN_GITHUB_USER_ID, KEYCHAIN_GITHUB_USERNAME] {
-        let entry = keyring::Entry::new(KEYCHAIN_SERVICE, account)
-            .map_err(|e| format!("Keychain error: {e}"))?;
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => {}
-            Err(e) => return Err(format!("Failed to remove {account}: {e}")),
-        }
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|e| format!("Keychain error: {e}"))?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("Failed to remove credentials: {e}")),
     }
-    Ok(())
 }
 
 fn load_token_parts() -> Option<(String, u64, String)> {
-    let load = |account: &str| -> Option<String> {
-        keyring::Entry::new(KEYCHAIN_SERVICE, account)
-            .ok()?
-            .get_password()
-            .ok()
-    };
-    let token = load(KEYCHAIN_GITHUB_TOKEN)?;
-    let user_id: u64 = load(KEYCHAIN_GITHUB_USER_ID)?.parse().ok()?;
-    let username = load(KEYCHAIN_GITHUB_USERNAME)?;
-    Some((token, user_id, username))
+    let json = keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .ok()?
+        .get_password()
+        .ok()?;
+    let creds: StoredCredentials = serde_json::from_str(&json).ok()?;
+    Some((creds.token, creds.user_id, creds.username))
 }
 
 // ── OAuth ─────────────────────────────────────────────────────────────────────
