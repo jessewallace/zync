@@ -4,9 +4,9 @@
 
 # Zync
 
-**Sync your Zen Browser profile between machines — no account, no server.**
+**Sync your Zen Browser profile between machines.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0-f76f53?style=flat-square)](https://github.com/jessewallace/zync/releases/latest)
+[![Version](https://img.shields.io/badge/version-0.4.0-f76f53?style=flat-square)](https://github.com/jessewallace/zync/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-f76f53?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-28262f?style=flat-square)](#installation)
 
@@ -14,19 +14,25 @@
 
 ---
 
-[Zen Browser](https://www.zen-browser.app/) is a beautifully minimal, Firefox-based browser that stores workspaces, pinned tabs, and themes in its own proprietary data — none of which Firefox Sync covers. Zync fills that gap: one click pushes your profile to an encrypted, temporary link; paste the code on any other machine to pull it down. No accounts, no relay servers, nothing persisted longer than an hour.
+[Zen Browser](https://www.zen-browser.app/) is a beautifully minimal, Firefox-based browser that stores workspaces, pinned tabs, and themes in its own proprietary data — none of which Firefox Sync covers. Zync fills that gap.
+
+**Manual mode** — one click pushes your profile to an encrypted temporary link; paste the code on any other machine to pull it down. No accounts required.
+
+**Automatic mode** — connect a GitHub account to enable background sync, persistent version history, and conflict-free merges when multiple machines are in use simultaneously.
 
 ---
 
 ## Screenshots
 
-| Single Profile Push | Pair/Sync Profiles |
+| Pull tab | Sync tab |
 |:---:|:---:|
-| ![Main screen](docs/screenshots/main.png) | ![Push result](docs/screenshots/pair.png) |
+| ![Main screen](docs/screenshots/main.png) | ![Sync tab](docs/screenshots/pair.png) |
 
 ---
 
 ## How it works
+
+### Manual sync (no account required)
 
 ```
 ┌─────────────────┐         ┌─────────────┐         ┌─────────────────┐
@@ -41,10 +47,16 @@
 ```
 
 1. **Push** — Zync bundles your profile files, encrypts them with AES-256-GCM, and uploads the blob to [Litterbox](https://litterbox.catbox.moe/) (expires in 1 hour).
-2. **Share** — You receive a sync code like `ZEN-A3F9B2-ABC123`. The first segment is the decryption key; the second is the Litterbox file ID. Share it however you like.
-3. **Pull** — Paste the code on any other machine. Zync downloads, decrypts, backs up your current profile, and writes the synced files — all in seconds.
+2. **Share** — You receive a sync code like `ZEN-A3F9B2-ABC123`. The first segment is the decryption key; the second is the Litterbox file ID.
+3. **Pull** — Paste the code on any other machine. Zync downloads, decrypts, backs up your current profile, and writes the synced files.
 
-Push and pull don't need to happen simultaneously. Any number of machines can pull the same code while the 1-hour window is open.
+Push and pull don't need to happen simultaneously. Any number of machines can pull the same code within the 1-hour window.
+
+### Automatic sync (GitHub-backed)
+
+Connect a GitHub account in the **Sync** tab. Zync creates a private `zync-sync` repository and stores encrypted profile snapshots as GitHub Release assets — no expiry, fully versioned.
+
+When Zen closes on any connected machine, Zync automatically pushes the latest profile. Other machines detect the update via [ntfy.sh](https://ntfy.sh/) and pull when Zen is next closed. If two machines are active simultaneously, version-aware conflict resolution ensures the most recently synced profile wins without silently overwriting data.
 
 ---
 
@@ -62,15 +74,13 @@ Push and pull don't need to happen simultaneously. Any number of machines can pu
 | `chrome/zen-themes.css` | Compiled active mod styles |
 | `zen-keyboard-shortcuts.json` | Keyboard shortcuts |
 
-Passwords (`key4.db`, `logins.json`) and extension storage are excluded for safety. Zen must be **closed** before pushing or pulling — Zync detects this and blocks if it isn't.
+Passwords (`key4.db`, `logins.json`) and extension storage are excluded. Zen must be **closed** before pushing or pulling — Zync detects this and blocks if it isn't.
 
 ---
 
-## Auto-sync (Pair mode)
+## Version history
 
-> **Experimental:** Pair mode is included in v0.1.0 but is experimental — not yet fully tested end-to-end. Use with caution and expect rough edges.
-
-Pair mode lets two machines stay in sync without copying codes manually. Generate a shared passphrase on one machine, enter it on the other, and a background daemon pushes on a schedule and pulls whenever a new bundle is detected. Pair mode is coming in a future release — the groundwork (encryption, transport) is already in place.
+Automatic sync keeps up to 10 profile snapshots, each labeled with machine name and timestamp. You can restore any previous snapshot from the Sync tab — your current profile is saved as a new snapshot first, so you can always undo a restore.
 
 ---
 
@@ -83,6 +93,8 @@ Download the latest release for your platform:
 | macOS (.dmg) | [Latest release →](https://github.com/jessewallace/zync/releases/latest) |
 | Windows (.msi) | [Latest release →](https://github.com/jessewallace/zync/releases/latest) |
 | Linux (.AppImage) | [Latest release →](https://github.com/jessewallace/zync/releases/latest) |
+
+macOS releases are signed and notarized — no Gatekeeper warnings on first launch.
 
 ### Build from source
 
@@ -97,33 +109,22 @@ npm run build
 
 ---
 
-## First-launch note
-
-Zync is not yet notarized. On first launch, right-click the `.app` and choose **Open** — macOS will ask for confirmation once, then remember your choice.
-
-On Windows, SmartScreen may warn about an unrecognized publisher — click **More info → Run anyway** to proceed.
-
----
-
 ## Security
 
-- Encryption: **AES-256-GCM** (authenticated; tampering is detected)
-- Key derivation: **PBKDF2-HMAC-SHA256**, 100,000 rounds, app-specific salt
-- Key space: 2²⁴ (~16 million values) — larger than the 1-hour Litterbox expiry window an attacker would need to brute-force
-- **No relay server** — Zync talks directly to Litterbox; nothing passes through our infrastructure
-- **Backup before pull** — current profile files are copied to `{profile}/zync-backup-{timestamp}/` before any writes
+**Manual sync**
+- Encryption: **AES-256-GCM** (authenticated — tampering is detected)
+- Key derivation: **PBKDF2-HMAC-SHA256**, 100,000 rounds
+- The sync code embeds the decryption key — share it over a trusted channel
+- Blobs expire from Litterbox after 1 hour; the attacker window is narrower than brute-force time
 
----
+**Automatic sync**
+- Profile blobs are encrypted before leaving your machine — GitHub never sees plaintext data
+- Encryption key is auto-generated on first connect and stored in your OS keychain
+- ntfy topic is derived from your GitHub user ID — never transmitted in plaintext
+- No relay server — Zync talks directly to GitHub and ntfy.sh
 
-## Roadmap
-
-- [ ] WAL checkpoint before push (`PRAGMA wal_checkpoint(TRUNCATE)`)
-- [ ] Same-machine round-trip test
-- [ ] End-to-end integration tests
-- [ ] Password sync (`key4.db` / `logins.json`) — opt-in only
-- [ ] Selective workspace sync
-- [ ] Pair mode (passphrase-based auto-sync daemon)
-- [ ] macOS notarization
+**Both modes**
+- Current profile files are backed up to `{profile}/zync-backup-{timestamp}/` before any pull
 
 ---
 
