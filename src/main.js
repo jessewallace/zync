@@ -253,6 +253,11 @@ function showSyncState(state) {
   syncDisconnected.style.display = state === 'disconnected' ? '' : 'none';
   syncConnected.style.display    = state === 'connected'    ? '' : 'none';
   syncRollback.style.display     = state === 'rollback'     ? '' : 'none';
+  if (state === 'disconnected') {
+    const btn = document.getElementById('btn-connect-github');
+    btn.disabled = false;
+    btn.textContent = 'Connect GitHub';
+  }
 }
 
 async function loadSyncStatus() {
