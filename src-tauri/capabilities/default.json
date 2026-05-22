@@ -7,6 +7,8 @@
     "core:tray:default",
     "notification:default",
     "autostart:default",
-    "updater:default"
+    "updater:default",
+    "oauth:default",
+    "opener:default"
   ]
 }

@@ -16,7 +16,7 @@
     <header class="app-header">
       <nav class="tabs">
         <button class="tab-item active" data-tab="pull">Pull</button>
-        <button class="tab-item" data-tab="pair">Pair</button>
+        <button class="tab-item" data-tab="sync">Sync</button>
       </nav>
     </header>
 
@@ -41,38 +41,41 @@
       <div id="status-main" class="msg-box hidden" role="status"></div>
     </div>
 
-    <!-- Pair tab -->
-    <div id="tab-pair" class="tab-content">
-      <div id="pair-msg" class="msg-box msg-neutral" role="status" aria-live="polite">Enter the same passphrase on each machine to enable automatic sync.</div>
+    <!-- Sync tab -->
+    <div id="tab-sync" class="tab-content">
 
-      <div class="field">
-        <label class="field-label" for="passphrase-input">PASSPHRASE</label>
-        <div class="passphrase-wrap">
-          <input type="text" id="passphrase-input" placeholder="e.g. purple-fox-mountain-7" autocomplete="off" spellcheck="false" />
-          <button id="btn-generate" type="button" class="btn btn-secondary" title="Generate passphrase">
-            <!-- Phosphor ArrowCounterClockwise -->
-            <svg width="24" height="24" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
-              <path d="M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z"/>
-            </svg>
-          </button>
-        </div>
+      <!-- State: not connected -->
+      <div id="sync-disconnected">
+        <p class="sync-intro">Connect a GitHub account to enable automatic sync and version history across your machines.</p>
+        <button id="btn-connect-github" class="btn btn-primary">Connect GitHub</button>
+        <p id="sync-connect-error" class="error-msg"></p>
       </div>
 
-      <div class="toggles">
-        <label class="toggle-label">
-          <input type="checkbox" id="toggle-auto-push" checked />
-          Auto-push when Zen closes
-        </label>
-        <label class="toggle-label">
-          <input type="checkbox" id="toggle-auto-pull" checked />
-          Auto-pull when another machine syncs
-        </label>
+      <!-- State: connected (main view) -->
+      <div id="sync-connected" style="display:none">
+        <p id="sync-account-label" class="sync-account"></p>
+        <p id="sync-repo-label" class="sync-repo-name"></p>
+
+        <label class="field-label" for="input-machine-name">Machine name</label>
+        <input id="input-machine-name" class="text-input" type="text" placeholder="My Machine" />
+
+        <p id="sync-last-synced" class="sync-status-text"></p>
+
+        <button id="btn-restore-version" class="btn btn-secondary">Restore Previous Version</button>
+        <p id="sync-main-error" class="error-msg"></p>
+        <button id="btn-disconnect" class="btn-danger-link">Disconnect</button>
       </div>
 
-      <div class="pair-actions">
-        <button id="btn-save-passphrase" class="btn btn-primary">Save &amp; Pair</button>
-        <button id="btn-forget-passphrase" class="btn btn-secondary">Forget</button>
+      <!-- State: rollback view -->
+      <div id="sync-rollback" style="display:none">
+        <button id="btn-back-rollback" class="btn-back">← Back</button>
+        <hr class="divider" />
+        <p class="rollback-description">Restoring replaces your current profile. Your current version is saved as a snapshot first, so you can always come back to it.</p>
+        <hr class="divider" />
+        <div id="snapshot-list"></div>
+        <p id="rollback-error" class="error-msg"></p>
       </div>
+
     </div>
   </div>
 

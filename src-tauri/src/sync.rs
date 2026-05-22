@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::{crypto, profile, transport};
+use crate::github::{GitHubClient, SyncMetadata, SlotEntry};
 
 /// In-memory payload that is serialized → encrypted → uploaded.
 /// File contents are base64-encoded to survive JSON round-trips.
@@ -208,9 +209,13 @@ pub async fn pull_profile(sync_code: String) -> Result<Vec<String>, String> {
     Ok(written)
 }
 
-/// Push the profile using a passphrase-derived key. Returns the Litterbox file ID.
-/// Used by the daemon for automatic syncing; does not return a sync code.
-pub async fn auto_push(passphrase: &str) -> Result<String, String> {
+/// Push the current Zen profile to GitHub. Returns (new_version, new_metadata).
+/// Returns Ok(None) if version conflict (another machine pushed — caller should pull).
+pub async fn github_push(
+    client: &GitHubClient,
+    machine_name: &str,
+    last_known_version: u32,
+) -> Result<Option<(u32, SyncMetadata)>, String> {
     let profile_dir = profile::find_zen_profile()
         .ok_or("Zen profile folder not found.")?;
 
@@ -220,7 +225,6 @@ pub async fn auto_push(passphrase: &str) -> Result<String, String> {
     }
 
     let files = collect_sync_files(&profile_dir)?;
-
     let created_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -228,26 +232,64 @@ pub async fn auto_push(passphrase: &str) -> Result<String, String> {
 
     let bundle = SyncBundle { version: 1, created_at, files };
     let json = serde_json::to_vec(&bundle).map_err(|e| e.to_string())?;
-    let encrypted = crypto::encrypt(&json, passphrase)?;
-    let result = transport::upload(encrypted).await?;
+    let encrypted = crate::crypto::encrypt(&json, &hex_key(&client.encryption_key))?;
 
-    transport::extract_file_id_from_url(&result.url)
-        .ok_or_else(|| format!("Could not parse Litterbox URL: {}", result.url))
+    // Read current metadata to verify we're still up to date
+    let (current_metadata, current_sha) = match client.read_metadata().await? {
+        Some(m) => (m.metadata, Some(m.sha)),
+        None => (SyncMetadata { version: 0, current_slot: 0, slots: vec![] }, None),
+    };
+
+    if current_metadata.version != last_known_version {
+        // Another machine pushed while we were collecting files — caller should pull
+        return Ok(None);
+    }
+
+    let slot = current_metadata.next_slot();
+    client.upload_profile(slot, &encrypted).await?;
+
+    let now_str = chrono_secs_to_iso(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    );
+
+    let new_entry = SlotEntry {
+        slot,
+        version: current_metadata.version + 1,
+        pushed_at: now_str,
+        machine_name: machine_name.to_string(),
+        size_bytes: encrypted.len() as u64,
+    };
+
+    let mut new_slots = current_metadata.slots.clone();
+    new_slots.insert(0, new_entry);
+    new_slots.truncate(10);
+
+    let new_metadata = SyncMetadata {
+        version: current_metadata.version + 1,
+        current_slot: slot,
+        slots: new_slots,
+    };
+
+    let committed = client
+        .write_metadata(&new_metadata, current_sha.as_deref())
+        .await?;
+
+    if !committed {
+        // SHA conflict — caller should pull first
+        return Ok(None);
+    }
+
+    Ok(Some((new_metadata.version, new_metadata)))
 }
 
-/// Pull a profile bundle by file ID using a passphrase-derived key.
-/// Used by the daemon for automatic syncing.
-/// Returns the sorted list of written file names.
-///
-/// The caller must verify Zen Browser is not running before invoking —
-/// writing to a live profile can corrupt the database.
-pub async fn auto_pull(file_id: &str, passphrase: &str) -> Result<Vec<String>, String> {
-    let url = format!(
-        "https://litter.catbox.moe/{}.bin",
-        file_id.to_lowercase()
-    );
-    let encrypted = transport::download(&url).await?;
-    let json = crypto::decrypt(&encrypted, passphrase)?;
+/// Download and apply a profile from GitHub slot. Returns written file names.
+/// Caller must verify Zen is not running before calling.
+pub async fn github_pull(client: &GitHubClient, slot: u8) -> Result<Vec<String>, String> {
+    let encrypted = client.download_profile(slot).await?;
+    let json = crate::crypto::decrypt(&encrypted, &hex_key(&client.encryption_key))?;
 
     let bundle: SyncBundle = serde_json::from_slice(&json)
         .map_err(|e| format!("Bundle format error: {e}"))?;
@@ -262,8 +304,40 @@ pub async fn auto_pull(file_id: &str, passphrase: &str) -> Result<Vec<String>, S
     let profile_dir = profile::find_zen_profile()
         .ok_or("Zen profile folder not found.")?;
 
-    let written = write_bundle_files(&profile_dir, &bundle)?;
-    Ok(written)
+    write_bundle_files(&profile_dir, &bundle)
+}
+
+fn hex_key(key: &[u8; 32]) -> String {
+    key.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn chrono_secs_to_iso(secs: u64) -> String {
+    let (y, mo, d, h, mi, sec) = epoch_to_ymd_hms(secs);
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{sec:02}Z")
+}
+
+fn epoch_to_ymd_hms(epoch: u64) -> (u32, u32, u32, u32, u32, u32) {
+    let sec = (epoch % 60) as u32;
+    let min = ((epoch / 60) % 60) as u32;
+    let hour = ((epoch / 3600) % 24) as u32;
+    let days = (epoch / 86400) as u32;
+    let mut y = 1970u32;
+    let mut remaining = days;
+    loop {
+        let dy = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
+        if remaining < dy { break; }
+        remaining -= dy;
+        y += 1;
+    }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let month_days = [31u32, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut mo = 1u32;
+    for &md in &month_days {
+        if remaining < md { break; }
+        remaining -= md;
+        mo += 1;
+    }
+    (y, mo, remaining + 1, hour, min, sec)
 }
 
 /// Copy the listed profile files into a timestamped backup folder.
@@ -310,5 +384,25 @@ mod tests {
         conn.execute_batch("CREATE TABLE t (x INTEGER);").unwrap();
         drop(conn);
         assert!(checkpoint_wal(&db_path).is_ok());
+    }
+
+    #[test]
+    fn bundle_serializes_and_deserializes() {
+        use std::collections::HashMap;
+        let mut files = HashMap::new();
+        files.insert("prefs.js".to_string(), base64::engine::general_purpose::STANDARD.encode(b"user_pref(\"test\", 1);"));
+        let bundle = SyncBundle { version: 1, created_at: 1234567890, files };
+        let json = serde_json::to_vec(&bundle).unwrap();
+        let back: SyncBundle = serde_json::from_slice(&json).unwrap();
+        assert_eq!(back.version, 1);
+        assert_eq!(back.created_at, 1234567890);
+        assert!(back.files.contains_key("prefs.js"));
+    }
+
+    #[test]
+    fn epoch_to_iso_known_date() {
+        // 2026-05-20T00:00:00Z = 1779235200
+        let s = super::chrono_secs_to_iso(1779235200);
+        assert_eq!(s, "2026-05-20T00:00:00Z");
     }
 }

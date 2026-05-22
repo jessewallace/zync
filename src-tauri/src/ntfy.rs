@@ -66,6 +66,17 @@ pub async fn poll_since(
     Ok(parse_lines(&body))
 }
 
+/// Parse a version number from an ntfy message body.
+/// New format is a plain decimal integer (e.g. "7").
+pub fn parse_version_message(msg: &str) -> Option<u32> {
+    msg.trim().parse::<u32>().ok()
+}
+
+/// Publish a version number to the ntfy topic.
+pub async fn publish_version(topic: &str, version: u32) -> Result<(), String> {
+    publish(topic, &version.to_string()).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +113,17 @@ mod tests {
     #[test]
     fn empty_body_returns_empty_vec() {
         assert_eq!(parse_lines("").len(), 0);
+    }
+
+    #[test]
+    fn parse_version_message_valid() {
+        assert_eq!(super::parse_version_message("7"), Some(7));
+        assert_eq!(super::parse_version_message("  7\n"), Some(7));
+    }
+
+    #[test]
+    fn parse_version_message_invalid() {
+        assert_eq!(super::parse_version_message("ABC123"), None);
+        assert_eq!(super::parse_version_message(""), None);
     }
 }

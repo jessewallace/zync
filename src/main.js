@@ -30,13 +30,6 @@ function setStatus(msg, type = "neutral") {
   el.textContent = msg;
 }
 
-function setPairMsg(msg, type = "neutral") {
-  const el = document.getElementById("pair-msg");
-  el.classList.remove("msg-neutral", "msg-error", "msg-success");
-  el.classList.add(type === "error" ? "msg-error" : type === "success" ? "msg-success" : "msg-neutral");
-  el.textContent = msg;
-}
-
 function setLoading(loading) {
   document.getElementById("btn-push").disabled = loading;
   document.getElementById("btn-pull").disabled = loading;
@@ -194,7 +187,7 @@ document.querySelectorAll(".tab-item").forEach((tab) => {
   tab.addEventListener("click", async () => {
     const name = tab.dataset.tab;
     showTab(name);
-    if (name === "pair") await loadPairTab();
+    if (name === "sync") await loadSyncStatus();
   });
 });
 
@@ -250,161 +243,166 @@ document.getElementById("pull-input").addEventListener("input", (e) => {
   }
 });
 
-// ── Passphrase generator ──────────────────────────────────────
+// ── Sync tab ──────────────────────────────────────────────────────────────────
 
-const WORDS = [
-  "amber","arctic","atlas","azure","birch","blaze","bloom","brave","brook","cedar",
-  "chill","cliff","cloud","coral","crane","crisp","delta","drift","dusk","eagle",
-  "ember","epoch","fern","flame","fleet","flora","frost","gale","glen","grove",
-  "haven","holly","ivory","jade","karma","knoll","lilac","lunar","maple","mist",
-  "nexus","noble","ocean","onyx","opal","orbit","pearl","pine","prism","quest",
-  "raven","reed","ridge","river","sage","scout","solar","steel","stone","swift",
-  "thorn","tide","tiger","tundra","ultra","vault","viper","vivid","walnut","wheat",
-  "wren","xenon","yield","zenith","zinc","acorn","bison","bluff","cobalt","crest",
-];
+const syncDisconnected = document.getElementById('sync-disconnected');
+const syncConnected    = document.getElementById('sync-connected');
+const syncRollback     = document.getElementById('sync-rollback');
 
-function generatePassphrase() {
-  const pick = () => WORDS[Math.floor(Math.random() * WORDS.length)];
-  const num = Math.floor(Math.random() * 90) + 10;
-  return `${pick()}-${pick()}-${pick()}-${num}`;
-}
-
-// ── Time helper ───────────────────────────────────────────────
-
-function timeAgo(unixSecs) {
-  const diff = Math.floor(Date.now() / 1000) - unixSecs;
-  if (diff <= 0)    return "just now";
-  if (diff < 60)    return "just now";
-  if (diff < 3600)  return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
-  const days = Math.floor(diff / 86400);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
-// ── Pair tab ──────────────────────────────────────────────────
-
-async function loadPairTab() {
-  const paired = await invoke("is_paired_cmd");
-  if (!paired) {
-    setPairMsg("Enter the same passphrase on each machine to enable automatic sync.");
-    document.getElementById("passphrase-input").value = "";
-    return;
-  }
-
-  let sync_count = 0, push_count = 0, last_synced = null;
-  try {
-    ({ sync_count, push_count, last_synced } = await invoke("get_sync_status_cmd"));
-  } catch (_) {
-    setPairMsg("Paired — waiting for other machines. Check passphrases match if nothing syncs.", "neutral");
-    try {
-      const passphrase = await invoke("get_cached_passphrase_cmd");
-      document.getElementById("passphrase-input").value = passphrase ?? "";
-    } catch (_) {
-      document.getElementById("passphrase-input").value = "";
-    }
-    return;
-  }
-
-  if (last_synced) {
-    setPairMsg(`Active · last ${timeAgo(last_synced)}`, "success");
-  } else if ((sync_count || 0) + (push_count || 0) > 0) {
-    setPairMsg("Active", "success");
-  } else {
-    setPairMsg(
-      "Paired — waiting for other machines. Check passphrases match if nothing syncs.",
-      "neutral"
-    );
-  }
-
-  try {
-    const passphrase = await invoke("get_cached_passphrase_cmd");
-    document.getElementById("passphrase-input").value = passphrase ?? "";
-  } catch (_) {
-    document.getElementById("passphrase-input").value = "";
-  }
-}
-
-// Holds passphrase between Pair tab and primer screen
-let pendingPassphrase = null;
-
-async function handleSavePassphrase() {
-  const passphrase = document.getElementById("passphrase-input").value.trim();
-  if (!passphrase) {
-    setPairMsg("Enter a passphrase first.", "error");
-    return;
-  }
-  if (passphrase.length < 8) {
-    setPairMsg("Passphrase must be at least 8 characters.", "error");
-    return;
-  }
-  pendingPassphrase = passphrase;
-  document.getElementById("primer-error").classList.add("hidden");
-  showScreen("screen-keychain-primer");
-}
-
-async function handlePrimerContinue() {
-  const passphrase = pendingPassphrase;
-  if (!passphrase) return;
-  const continueBtn = document.getElementById("btn-primer-continue");
-  const backBtn = document.getElementById("btn-primer-back");
-  const errorEl = document.getElementById("primer-error");
-  continueBtn.disabled = true;
-  backBtn.disabled = true;
-  errorEl.classList.add("hidden");
-  try {
-    await invoke("save_passphrase_and_cache_cmd", { passphrase });
-    await invoke("set_auto_push_cmd", { enabled: document.getElementById("toggle-auto-push").checked });
-    await invoke("set_auto_pull_cmd", { enabled: document.getElementById("toggle-auto-pull").checked });
-    pendingPassphrase = null;
-    showScreen("screen-main");
-    showTab("pair");
-    await loadPairTab();
-    const pairMsg = document.getElementById("pair-msg");
-    pairMsg.classList.remove("pair-bounce");
-    void pairMsg.offsetWidth;
-    pairMsg.classList.add("pair-bounce");
-    pairMsg.addEventListener("animationend", () => pairMsg.classList.remove("pair-bounce"), { once: true });
-  } catch (err) {
-    errorEl.textContent = String(err);
-    errorEl.classList.remove("hidden");
-  } finally {
-    continueBtn.disabled = false;
-    backBtn.disabled = false;
-  }
-}
-
-async function handlePrimerBack() {
-  pendingPassphrase = null;
-  showScreen("screen-main");
-  showTab("pair");
-  await loadPairTab();
-}
-
-async function handleForgetPassphrase() {
-  const btn = document.getElementById("btn-forget-passphrase");
-  btn.disabled = true;
-  try {
-    await invoke("clear_passphrase_and_cache_cmd");
-    document.getElementById("passphrase-input").value = "";
-    await loadPairTab();
-  } catch (err) {
-    setPairMsg(String(err), "error");
-  } finally {
+function showSyncState(state) {
+  syncDisconnected.style.display = state === 'disconnected' ? '' : 'none';
+  syncConnected.style.display    = state === 'connected'    ? '' : 'none';
+  syncRollback.style.display     = state === 'rollback'     ? '' : 'none';
+  if (state === 'disconnected') {
+    const btn = document.getElementById('btn-connect-github');
     btn.disabled = false;
+    btn.textContent = 'Connect GitHub';
   }
 }
 
-document.getElementById("btn-save-passphrase").addEventListener("click", handleSavePassphrase);
-document.getElementById("btn-forget-passphrase").addEventListener("click", handleForgetPassphrase);
-document.getElementById("btn-primer-continue").addEventListener("click", handlePrimerContinue);
-document.getElementById("btn-primer-back").addEventListener("click", handlePrimerBack);
-document.getElementById("btn-generate").addEventListener("click", () => {
-  document.getElementById("passphrase-input").value = generatePassphrase();
-  const btn = document.getElementById("btn-generate");
-  btn.classList.remove("spinning");
-  void btn.offsetWidth;
-  btn.classList.add("spinning");
-  btn.addEventListener("animationend", () => btn.classList.remove("spinning"), { once: true });
+async function loadSyncStatus() {
+  try {
+    const status = await invoke('get_sync_status_cmd');
+    if (status.connected) {
+      document.getElementById('sync-account-label').textContent = `✓ Connected as ${status.username}`;
+      document.getElementById('sync-repo-label').textContent    = 'zync-sync · private';
+      document.getElementById('input-machine-name').value       = status.machineName || '';
+      if (status.lastSynced) {
+        const d = new Date(status.lastSynced * 1000);
+        const from = status.lastSyncedFrom ? ` from ${status.lastSyncedFrom}` : '';
+        document.getElementById('sync-last-synced').textContent =
+          `Last synced: ${d.toLocaleString()}${from}`;
+      } else {
+        document.getElementById('sync-last-synced').textContent = 'Not yet synced this session';
+      }
+      showSyncState('connected');
+    } else {
+      showSyncState('disconnected');
+    }
+  } catch (e) {
+    document.getElementById('sync-connect-error').textContent = String(e);
+    showSyncState('disconnected');
+  }
+}
+
+document.getElementById('btn-connect-github').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-connect-github');
+  const err = document.getElementById('sync-connect-error');
+  document.getElementById('sync-connect-error').textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+  err.textContent = '';
+  try {
+    await invoke('connect_github_cmd');
+    await loadSyncStatus();
+  } catch (e) {
+    err.textContent = String(e);
+    btn.disabled = false;
+    btn.textContent = 'Connect GitHub';
+  }
+});
+
+document.getElementById('btn-disconnect').addEventListener('click', async () => {
+  document.getElementById('sync-main-error').textContent = '';
+  try {
+    await invoke('disconnect_github_cmd');
+    showSyncState('disconnected');
+  } catch (e) {
+    document.getElementById('sync-main-error').textContent = String(e);
+  }
+});
+
+document.getElementById('input-machine-name').addEventListener('change', async (ev) => {
+  document.getElementById('sync-main-error').textContent = '';
+  try {
+    await invoke('set_machine_name_cmd', { name: ev.target.value });
+  } catch (e) {
+    document.getElementById('sync-main-error').textContent = String(e);
+  }
+});
+
+document.getElementById('btn-restore-version').addEventListener('click', async () => {
+  const err = document.getElementById('sync-main-error');
+  err.textContent = '';
+  try {
+    const snapshots = await invoke('get_snapshots_cmd');
+    renderSnapshotList(snapshots);
+    showSyncState('rollback');
+  } catch (e) {
+    err.textContent = String(e);
+  }
+});
+
+document.getElementById('btn-back-rollback').addEventListener('click', () => {
+  showSyncState('connected');
+});
+
+function renderSnapshotList(snapshots) {
+  const list = document.getElementById('snapshot-list');
+  list.innerHTML = '';
+  if (snapshots.length === 0) {
+    const empty = document.createElement('p');
+    empty.style.color = 'var(--text-muted, #888)';
+    empty.style.fontSize = '13px';
+    empty.textContent = 'No snapshots yet.';
+    list.appendChild(empty);
+    return;
+  }
+  snapshots.forEach(snap => {
+    const row = document.createElement('div');
+    row.className = 'snapshot-row';
+
+    const dot = document.createElement('span');
+    dot.className = snap.isCurrent ? 'snapshot-dot' : 'snapshot-dot hidden';
+    row.appendChild(dot);
+
+    const info = document.createElement('div');
+    info.className = 'snapshot-info';
+    const machine = document.createElement('div');
+    machine.className = 'snapshot-machine';
+    machine.textContent = snap.machineName;
+    const date = document.createElement('div');
+    date.className = 'snapshot-date';
+    const d = new Date(snap.pushedAt);
+    date.textContent = isNaN(d.getTime()) ? snap.pushedAt : d.toLocaleString();
+    const size = document.createElement('div');
+    size.className = 'snapshot-size';
+    size.textContent = snap.sizeMb != null ? `${snap.sizeMb.toFixed(1)} MB` : '';
+    info.appendChild(machine);
+    info.appendChild(date);
+    info.appendChild(size);
+    row.appendChild(info);
+
+    if (!snap.isCurrent) {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-secondary btn-restore';
+      btn.textContent = 'Restore';
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Restoring…';
+        document.getElementById('rollback-error').textContent = '';
+        try {
+          await invoke('restore_snapshot_cmd', { slot: snap.slot });
+          showSyncState('connected');
+          await loadSyncStatus();
+        } catch (e) {
+          document.getElementById('rollback-error').textContent = String(e);
+          btn.disabled = false;
+          btn.textContent = 'Restore';
+        }
+      });
+      row.appendChild(btn);
+    }
+
+    list.appendChild(row);
+  });
+}
+
+// Listen for sync updates from daemon
+window.__TAURI__.event.listen('sync-updated', () => {
+  if (syncConnected.style.display !== 'none') {
+    loadSyncStatus();
+  }
 });
 
 // ── Update dialog ─────────────────────────────────────────
@@ -507,16 +505,6 @@ async function initUpdateListener() {
     const { version, notes } = event.payload;
     showUpdateDialog(version, notes); // async, fire-and-forget is fine here
   });
-  await listen("sync-updated", ({ payload }) => {
-    const isPairTabActive = document.querySelector('[data-tab="pair"]')?.classList.contains("active");
-    if (!isPairTabActive) return;
-    const { last_synced } = payload;
-    if (last_synced) {
-      setPairMsg(`Active · last ${timeAgo(last_synced)}`, "success");
-    } else {
-      setPairMsg("Active", "success");
-    }
-  });
 }
 
 // ── Init ──────────────────────────────────────────────────────
@@ -528,14 +516,8 @@ async function init() {
     "font-size:20px;font-weight:700;color:#f76f53;font-family:'Bricolage Grotesque',system-ui,sans-serif",
     "\nSync your Zen Browser profile between machines.\nBuilt with Tauri · Rust · vanilla JS."
   );
-  const paired = await invoke("is_paired_cmd");
   showScreen("screen-main");
-  await loadPairTab();
-  if (!paired) {
-    showTab("pair");
-  } else {
-    showTab("pull");
-  }
+  showTab("pull");
 }
 
 document.addEventListener("DOMContentLoaded", init);

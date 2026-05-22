@@ -686,3 +686,27 @@ input[type="text"]::placeholder {
     transition-duration: 0.01ms !important;
   }
 }
+
+.sync-intro { color: var(--text-muted, #888); margin-bottom: 16px; }
+.sync-account { font-weight: 600; margin-bottom: 2px; }
+.sync-repo-name { color: var(--text-muted, #888); font-size: 12px; margin-bottom: 16px; }
+.sync-status-text { color: var(--text-muted, #888); font-size: 12px; margin: 12px 0; }
+.rollback-description { color: var(--text-muted, #888); font-size: 13px; margin: 8px 0; }
+.btn-back { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; }
+.btn-danger-link { background: none; border: none; color: var(--text-muted, #888); cursor: pointer; font-size: 12px; margin-top: 16px; }
+#tab-sync hr.divider { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+#tab-sync hr.divider::before,
+#tab-sync hr.divider::after {
+  content: none;
+  display: none;
+}
+.snapshot-row { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); gap: 8px; }
+.snapshot-row .snapshot-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.snapshot-row .snapshot-dot.hidden { visibility: hidden; }
+.snapshot-info { flex: 1; }
+.snapshot-machine { font-size: 13px; font-weight: 500; }
+.snapshot-date { font-size: 11px; color: var(--text-muted, #888); }
+.snapshot-size { font-size: 11px; color: var(--text-muted, #888); }
+.btn-restore { padding: 4px 10px; font-size: 12px; width: auto; }
+.error-msg { color: var(--error-text, #b80000); font-size: 12px; min-height: 1em; }
+.text-input { width: 100%; box-sizing: border-box; }
