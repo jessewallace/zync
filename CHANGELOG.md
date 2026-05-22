@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+- Connect a GitHub account in the new Sync tab to enable automatic sync and version history across machines.
+- Profile snapshots — up to 10 versions are kept, with machine name and timestamp, so you can restore any previous state.
+- Version-aware conflict resolution — if another machine pushed while Zen was open, Zync applies their changes when Zen closes instead of overwriting with your local session.
+
+### Changed
+- Replaced the Pair tab and passphrase-based pairing with GitHub-backed sync. The manual Push/Pull flow (ZEN-CODE) is unchanged.
+- Automatic sync now uses GitHub Releases for storage instead of Litterbox, so synced profiles are persistent and versioned rather than expiring after one hour.
+
 ## 0.3.13
 
 ## 0.3.12
