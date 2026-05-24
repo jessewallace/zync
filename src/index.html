@@ -5,125 +5,176 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Zync</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:ital,wght@0,100..900;1,100..900&family=Red+Hat+Mono:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 <div id="app">
 
-  <!-- ── Main screen (Pull + Pair tabs) ───────────────────── -->
+  <!-- ── Main screen ────────────────────────────────────────── -->
   <div id="screen-main" class="screen active">
     <header class="app-header">
-      <nav class="tabs">
-        <button class="tab-item active" data-tab="pull">Pull</button>
-        <button class="tab-item" data-tab="sync">Sync</button>
-      </nav>
+      <div class="app-brand">
+        <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/>
+        </svg>
+        <span class="brand-name">Zync</span>
+      </div>
+      <div class="tab-group" role="tablist">
+        <button class="tab-item active" data-tab="sync" role="tab" aria-selected="true">Sync</button>
+        <button class="tab-item" data-tab="pull" role="tab" aria-selected="false">Pull</button>
+        <div class="tab-indicator" aria-hidden="true"></div>
+      </div>
     </header>
 
-    <!-- Pull tab -->
-    <div id="tab-pull" class="tab-content active">
-      <div class="actions">
-        <button id="btn-push" class="btn btn-primary">Upload</button>
-        <div class="divider">or pull from another machine</div>
-        <div class="pull-col">
-          <input
-            id="pull-input"
-            type="text"
-            placeholder="ZEN-XXXX-XXXX"
-            maxlength="28"
-            spellcheck="false"
-            autocomplete="off"
-            aria-label="Sync code"
-          />
-          <button id="btn-pull" class="btn btn-secondary">Pull</button>
-        </div>
-      </div>
-      <div id="status-main" class="msg-box hidden" role="status"></div>
-    </div>
-
-    <!-- Sync tab -->
-    <div id="tab-sync" class="tab-content">
+    <!-- Sync tab (first) -->
+    <div id="tab-sync" class="tab-content active" role="tabpanel">
 
       <!-- State: not connected -->
       <div id="sync-disconnected">
-        <p class="sync-intro">Connect a GitHub account to enable automatic sync and version history across your machines.</p>
+        <div class="sync-intro-group">
+          <div class="state-icon-wrap" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/>
+              <path d="M9 18c-4.51 2-5-2-7-2"/>
+            </svg>
+          </div>
+          <p class="state-heading">Connect GitHub</p>
+          <div class="state-zone">
+            <p class="sync-intro">Sync your profile across machines and keep version history.</p>
+            <p id="sync-connect-error" class="error-msg"></p>
+          </div>
+        </div>
         <button id="btn-connect-github" class="btn btn-primary">Connect GitHub</button>
-        <p id="sync-connect-error" class="error-msg"></p>
       </div>
 
-      <!-- State: connected (main view) -->
+      <!-- State: connected -->
       <div id="sync-connected" style="display:none">
+        <div class="sync-orbit" aria-hidden="true">
+          <div class="sync-arc sync-arc-outer"></div>
+          <div class="sync-arc sync-arc-inner"></div>
+          <div class="sync-core"></div>
+        </div>
         <p id="sync-account-label" class="sync-account"></p>
         <p id="sync-repo-label" class="sync-repo-name"></p>
-
-        <label class="field-label" for="input-machine-name">Machine name</label>
-        <input id="input-machine-name" class="text-input" type="text" placeholder="My Machine" />
-
+        <span class="connected-pill">Connected</span>
+        <div class="field sync-machine-field">
+          <label class="field-label" for="input-machine-name">Machine name</label>
+          <input id="input-machine-name" class="text-input" type="text" placeholder="My Machine" />
+        </div>
         <p id="sync-last-synced" class="sync-status-text"></p>
-
-        <button id="btn-restore-version" class="btn btn-secondary">Restore Previous Version</button>
         <p id="sync-main-error" class="error-msg"></p>
-        <button id="btn-disconnect" class="btn-danger-link">Disconnect</button>
+        <div class="sync-footer-actions">
+          <button id="btn-restore-version" class="btn btn-secondary">Restore Version</button>
+          <button id="btn-disconnect" class="btn-danger-link">Disconnect</button>
+        </div>
       </div>
 
-      <!-- State: rollback view -->
+      <!-- State: rollback -->
       <div id="sync-rollback" style="display:none">
         <button id="btn-back-rollback" class="btn-back">← Back</button>
-        <hr class="divider" />
-        <p class="rollback-description">Restoring replaces your current profile. Your current version is saved as a snapshot first, so you can always come back to it.</p>
-        <hr class="divider" />
+        <p class="rollback-description">Your current version is saved first — you can always return to it.</p>
         <div id="snapshot-list"></div>
         <p id="rollback-error" class="error-msg"></p>
       </div>
 
     </div>
+
+    <!-- Pull tab (second) -->
+    <div id="tab-pull" class="tab-content" role="tabpanel">
+      <div class="pull-icon-wrap" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/>
+        </svg>
+      </div>
+      <p class="pull-heading">Enter a sync code</p>
+      <div class="pull-status-zone">
+        <p class="pull-sub">Enter the sync code from your other machine.</p>
+        <div id="status-main" class="msg-box hidden" role="status"></div>
+      </div>
+      <div class="pull-form">
+        <div class="field">
+          <label class="field-label" for="pull-input">Sync code</label>
+          <div class="pull-input-row">
+            <input
+              id="pull-input"
+              type="text"
+              class="code-input"
+              placeholder="ZEN-XXXXXX-XXXXXX"
+              maxlength="28"
+              spellcheck="false"
+              autocomplete="off"
+              aria-label="Sync code"
+            />
+            <button id="btn-pull" class="btn btn-secondary">Pull Profile</button>
+          </div>
+        </div>
+      </div>
+      <div class="pull-upload-footer">
+        <div class="pull-upload-text">
+          <p class="pull-upload-label">On the source machine?</p>
+          <p class="pull-upload-sub">Upload to generate a code first</p>
+        </div>
+        <button id="btn-push" class="btn btn-primary pull-upload-btn">Upload ↑</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── Push result screen ────────────────────────────────── -->
   <div id="screen-push" class="screen">
-    <div class="push-header">
-      <p class="result-title">Sync Code</p>
-      <div class="divider">Share this with your other machine(s)</div>
+    <div class="result-hero">
+      <div class="result-icon-wrap" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+      </div>
+      <p class="result-heading">Your sync code</p>
+      <p class="result-sub">Share with another machine · expires in 1 hour</p>
     </div>
-
-    <div class="push-body">
-      <div id="sync-code" class="code-display" title="Click to copy">ZEN-0000</div>
+    <div id="sync-code" class="code-display" title="Click to copy">ZEN-0000</div>
+    <div class="push-footer">
       <div class="push-actions">
         <button id="btn-copy" class="btn btn-primary">Copy</button>
         <button id="btn-push-done" class="btn btn-ghost">Done</button>
       </div>
+      <p id="countdown" class="countdown">Expires in <strong id="countdown-time">60:00</strong></p>
     </div>
-
-    <p id="countdown" class="countdown">Expires in <strong id="countdown-time">60:00</strong></p>
   </div>
 
   <!-- ── Pull result screen ────────────────────────────────── -->
   <div id="screen-pull" class="screen">
     <div class="pull-result-body">
-      <!-- Phosphor Check -->
-      <svg class="check-icon" width="48" height="48" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
-        <path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/>
+      <svg class="check-icon" width="52" height="52" viewBox="0 0 56 56" fill="none" aria-hidden="true">
+        <circle class="check-circle" cx="28" cy="28" r="24" stroke="currentColor" stroke-width="2"/>
+        <polyline class="check-mark" points="18,29 24,36 38,19" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <p class="result-title">Pull successful!</p>
-      <div class="msg-box msg-success">Open Zen Browser to see your changes.</div>
+      <p class="result-heading">Synced</p>
+      <p class="result-sub">Open Zen Browser to see your changes.</p>
       <p id="pull-files" class="pull-files"></p>
     </div>
-    <button id="btn-pull-done" class="btn btn-ghost">Done</button>
+    <div class="result-footer">
+      <button id="btn-pull-done" class="btn btn-secondary">Done</button>
+    </div>
   </div>
 
   <!-- ── Keychain primer screen ────────────────────────────── -->
   <div id="screen-keychain-primer" class="screen">
     <div class="primer-body">
-      <!-- Phosphor Lock icon -->
-      <svg class="primer-icon" width="48" height="48" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
-        <path d="M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Zm-80-48a24,24,0,1,0-24-24A24,24,0,0,0,128,160Z"/>
-      </svg>
-      <p class="result-title">Secure storage</p>
+      <div class="result-icon-wrap" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          <circle cx="12" cy="16" r="1.5" fill="currentColor" stroke="none"/>
+        </svg>
+      </div>
+      <p class="result-heading">Secure storage</p>
       <p class="primer-text">Your passphrase will be stored in your Mac's Keychain. macOS will ask for permission — click <strong>Always Allow</strong> so you're not asked again.</p>
       <div id="primer-error" class="msg-box msg-error hidden" role="alert" aria-live="polite"></div>
     </div>
-    <div class="primer-actions">
-      <button id="btn-primer-back" class="btn btn-secondary">Go back</button>
+    <div class="result-footer">
+      <button id="btn-primer-back" class="btn btn-ghost">Go back</button>
       <button id="btn-primer-continue" class="btn btn-primary">Yes, continue</button>
     </div>
   </div>
@@ -131,8 +182,15 @@
   <!-- ── Update dialog overlay ─────────────────────────────── -->
   <div id="update-dialog" class="update-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="update-title">
     <div class="update-card">
-      <p class="update-version" id="update-title">Zync <span id="update-version-number"></span> is available</p>
-      <p class="update-current">You have <span id="update-current-version"></span></p>
+      <div class="result-icon-wrap" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+        </svg>
+      </div>
+      <div>
+        <p class="update-version" id="update-title">Zync <span id="update-version-number"></span> is available</p>
+        <p class="update-current">You have <span id="update-current-version"></span></p>
+      </div>
       <div class="update-notes-wrap">
         <div id="update-notes" class="update-notes"></div>
       </div>

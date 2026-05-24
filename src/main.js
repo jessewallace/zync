@@ -136,15 +136,18 @@ async function handlePush() {
 
 async function handlePull() {
   const input = document.getElementById("pull-input");
+  input.classList.remove("is-error");
   const rawCode = input.value.trim().toUpperCase();
 
   if (!rawCode) {
     setStatus("Enter a sync code (e.g. ZEN-A3F9B2-ABC123)", "error");
+    input.classList.add("is-error");
     input.focus();
     return;
   }
   if (!/^ZEN-[A-Z0-9]{4,8}-[A-Z0-9]{4,12}$/.test(rawCode)) {
     setStatus("Invalid code. Format is ZEN-XXXXXX-YYYYYY", "error");
+    input.classList.add("is-error");
     input.focus();
     return;
   }
@@ -162,12 +165,14 @@ async function handlePull() {
     setStatus("Downloading and decrypting…");
     const files = await invoke("pull_profile", { syncCode: rawCode });
 
+    input.classList.remove("is-error");
     document.getElementById("pull-files").textContent = files.join(", ");
     setStatus("");
     showScreen("screen-pull");
 
   } catch (err) {
     setStatus(String(err), "error");
+    input.classList.add("is-error");
   } finally {
     setLoading(false);
   }
@@ -216,18 +221,22 @@ document.getElementById("btn-copy").addEventListener("click", doCopy);
 document.getElementById("btn-push-done").addEventListener("click", () => {
   stopCountdown();
   showScreen("screen-main");
-  showTab("pull");
+  showTab("sync");
 });
 
 document.getElementById("btn-pull-done").addEventListener("click", () => {
   showScreen("screen-main");
-  showTab("pull");
-  document.getElementById("pull-input").value = "";
+  showTab("sync");
+  const pullInput = document.getElementById("pull-input");
+  pullInput.value = "";
+  pullInput.classList.remove("is-error");
   setStatus("");
 });
 
 // Auto-format pull input into ZEN-XXXXXX-YYYYYY as user types
 document.getElementById("pull-input").addEventListener("input", (e) => {
+  e.target.classList.remove("is-error");
+  setStatus("");
   let raw = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (raw.startsWith("ZEN")) raw = raw.slice(3);
   let out = "ZEN";
@@ -264,8 +273,8 @@ async function loadSyncStatus() {
   try {
     const status = await invoke('get_sync_status_cmd');
     if (status.connected) {
-      document.getElementById('sync-account-label').textContent = `✓ Connected as ${status.username}`;
-      document.getElementById('sync-repo-label').textContent    = 'zync-sync · private';
+      document.getElementById('sync-account-label').textContent = status.username;
+      document.getElementById('sync-repo-label').textContent    = `${status.username}/zync-sync`;
       document.getElementById('input-machine-name').value       = status.machineName || '';
       if (status.lastSynced) {
         const d = new Date(status.lastSynced * 1000);
@@ -403,6 +412,11 @@ window.__TAURI__.event.listen('sync-updated', () => {
   if (syncConnected.style.display !== 'none') {
     loadSyncStatus();
   }
+  const orbit = document.querySelector('.sync-orbit');
+  if (orbit) {
+    orbit.classList.add('is-syncing');
+    setTimeout(() => orbit.classList.remove('is-syncing'), 3000);
+  }
 });
 
 // ── Update dialog ─────────────────────────────────────────
@@ -513,11 +527,11 @@ async function init() {
   await initUpdateListener();
   console.log(
     "%cZync",
-    "font-size:20px;font-weight:700;color:#f76f53;font-family:'Bricolage Grotesque',system-ui,sans-serif",
+    "font-size:20px;font-weight:800;color:#f76f53;font-family:'Anybody',system-ui,sans-serif;font-stretch:88%",
     "\nSync your Zen Browser profile between machines.\nBuilt with Tauri · Rust · vanilla JS."
   );
   showScreen("screen-main");
-  showTab("pull");
+  showTab("sync");
 }
 
 document.addEventListener("DOMContentLoaded", init);

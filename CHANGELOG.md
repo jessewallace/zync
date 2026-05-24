@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1
+
+### Fixed
+- Window height corrected to 420px.
+- Sync code input now highlights red on invalid input and clears the error as you type.
+- After completing a push or pull, the app returns to the Sync tab.
+
+### Changed
+- Pull tab: sync code input and Pull Profile button are now side by side.
+- Sync tab connected state: Restore Version and Disconnect are now a left/right pair instead of stacked.
+- Connected state displays username and repository name cleanly.
+- Sync orbit animation activates when a sync completes.
+- All buttons and input fields standardized to the same height.
+
 ## 0.4.0
 
 ### Added
