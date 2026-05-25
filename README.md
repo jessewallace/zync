@@ -22,11 +22,8 @@
 
 ---
 
-## Screenshots
 
-| Pull tab | Sync tab |
-|:---:|:---:|
-| ![Main screen](docs/screenshots/main.png) | ![Sync tab](docs/screenshots/pair.png) |
+![Main screen](docs/screenshots/gh-screenshot.png)
 
 ---
 
