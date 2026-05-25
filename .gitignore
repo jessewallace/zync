@@ -7,3 +7,7 @@ gen/
 *.iml
 .DS_Store
 .worktrees/
+CLAUDE.md
+DESIGN.md
+PRODUCT.md
+.impeccable/
