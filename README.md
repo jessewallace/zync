@@ -12,6 +12,8 @@
 
 </div>
 
+![Main screen](docs/screenshots/gh-screenshot.png)
+
 ---
 
 [Zen Browser](https://www.zen-browser.app/) is a beautifully minimal, Firefox-based browser that stores workspaces, pinned tabs, and themes in its own proprietary data — none of which Firefox Sync covers. Zync fills that gap.
@@ -19,11 +21,6 @@
 **Manual mode** — one click pushes your profile to an encrypted temporary link; paste the code on any other machine to pull it down. No accounts required.
 
 **Automatic mode** — connect a GitHub account to enable background sync, persistent version history, and conflict-free merges when multiple machines are in use simultaneously.
-
----
-
-
-![Main screen](docs/screenshots/gh-screenshot.png)
 
 ---
 
