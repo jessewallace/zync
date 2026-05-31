@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zync — Pull tab Option C</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:ital,wght@0,100..900;1,100..900&family=Red+Hat+Mono:wght@400;500;600&display=swap">
+  <style>
+    :root {
+      --bg:             oklch(96.5% 0.012 88);
+      --bg-subtle:      oklch(93.5% 0.018 88);
+      --surface:        oklch(91%   0.022 88);
+      --surface-hover:  oklch(88%   0.026 88);
+      --border:         oklch(83%   0.026 88);
+      --border-light:   oklch(90%   0.018 88);
+      --accent:         oklch(66%   0.200 29);
+      --accent-hover:   oklch(61%   0.200 29);
+      --accent-deep:    oklch(50%   0.200 29);
+      --accent-pale:    oklch(95%   0.036 40);
+      --text:           oklch(19%   0.020 88);
+      --text-muted:     oklch(56%   0.032 88);
+      --text-dim:       oklch(74%   0.022 88);
+      --success-bg:     oklch(93%   0.045 145);
+      --success-text:   oklch(38%   0.130 145);
+      --error-bg:       oklch(94%   0.030 15);
+      --error-text:     oklch(42%   0.150 15);
+      --error-border:   oklch(72%   0.120 15);
+      --font:      'Anybody', sans-serif;
+      --font-mono: 'Red Hat Mono', monospace;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: oklch(90% 0.016 88);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+      padding: 48px 40px 80px;
+    }
+
+    .page-header { margin-bottom: 48px; }
+    .page-eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-stretch: 88%;
+      margin-bottom: 6px;
+    }
+    .page-title {
+      font-size: 22px;
+      font-weight: 800;
+      font-stretch: 115%;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .section { margin-bottom: 56px; }
+    .section-heading {
+      font-size: 11px;
+      font-weight: 700;
+      font-stretch: 88%;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .section-heading::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-light);
+    }
+
+    .options-row {
+      display: flex;
+      gap: 32px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .option-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .option-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-stretch: 88%;
+    }
+
+    /* ── Window ──────────────────────────────────────────────── */
+
+    .zync-window {
+      width: 420px;
+      background: var(--bg);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow:
+        0 4px 24px oklch(19% 0.020 88 / 0.10),
+        0 0 0 1px oklch(83% 0.026 88 / 0.60);
+    }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .app-brand { display: flex; align-items: center; gap: 7px; }
+    .brand-icon { color: var(--accent); flex-shrink: 0; }
+    .brand-name {
+      font-size: 14px;
+      font-weight: 800;
+      font-stretch: 115%;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .tab-group {
+      position: relative;
+      display: flex;
+      background: var(--surface);
+      border-radius: 10px;
+      padding: 3px;
+    }
+    .tab-item {
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 700;
+      font-stretch: 88%;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-radius: 7px;
+      padding: 5px 18px;
+      cursor: pointer;
+      position: relative;
+      z-index: 1;
+      white-space: nowrap;
+    }
+    .tab-item.active { color: var(--text); }
+    .tab-indicator {
+      position: absolute;
+      top: 3px; bottom: 3px; left: 3px;
+      width: calc(50% - 3px);
+      background: var(--bg);
+      border-radius: 7px;
+      box-shadow: 0 1px 4px oklch(19% 0.020 88 / 0.10), 0 0 0 1px oklch(83% 0.026 88 / 0.5);
+      pointer-events: none;
+    }
+
+    /* ── Shared ──────────────────────────────────────────────── */
+
+    .btn {
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: var(--font);
+      font-weight: 700;
+      font-stretch: 90%;
+      letter-spacing: 0.04em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: background 0.12s, box-shadow 0.12s, color 0.12s;
+      outline: none;
+      white-space: nowrap;
+    }
+    .btn:active { opacity: 0.85; transform: scale(0.97); }
+
+    .field-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .text-input {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      background: var(--surface);
+      border: 1.5px solid var(--border-light);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      outline: none;
+      width: 100%;
+      letter-spacing: 0.04em;
+      transition: border-color 0.15s;
+    }
+    .text-input::placeholder { color: var(--text-dim); }
+    .text-input:focus { border-color: var(--accent); }
+    .text-input.is-error { border-color: var(--error-border); }
+
+    /* ── Option C — Pull-first layout ───────────────────────── */
+
+    .pc .tab-content {
+      padding: 28px 22px 22px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .pc .pull-icon-wrap {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .pc .pull-heading {
+      font-size: 15px;
+      font-weight: 800;
+      font-stretch: 105%;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    /*
+      Fixed-height zone: holds subtitle (idle) OR error (on failure).
+      Same dimensions in both states — window height never changes.
+    */
+    .pc .status-zone {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+      width: 100%;
+    }
+
+    .pc .pull-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 30ch;
+    }
+
+    /* Error — swaps in for subtitle, same zone */
+    .pc .pull-error {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--error-text);
+      background: var(--error-bg);
+      border-radius: 8px;
+      padding: 7px 12px;
+      line-height: 1.45;
+      width: 100%;
+      text-align: left;
+    }
+
+    .pc .code-field {
+      width: 100%;
+      text-align: left;
+      margin-bottom: 10px;
+    }
+
+    .pc .btn-pull-main {
+      width: 100%;
+      padding: 13px 20px;
+      font-size: 14px;
+      background: var(--text);
+      color: var(--bg);
+      margin-bottom: 18px;
+      box-shadow: 0 2px 0 oklch(10% 0.015 88), inset 0 1px 0 oklch(35% 0.020 88 / 0.20);
+    }
+    .pc .btn-pull-main:hover { background: oklch(28% 0.020 88); }
+    .pc .btn-pull-main:active { box-shadow: 0 0 0 oklch(10% 0.015 88); }
+
+    .pc .upload-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding-top: 18px;
+      border-top: 1px solid var(--border-light);
+    }
+    .pc .upload-footer-text { flex: 1; text-align: left; }
+    .pc .upload-footer-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 1px;
+    }
+    .pc .upload-footer-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .pc .btn-upload-sm {
+      padding: 9px 16px;
+      font-size: 12px;
+      background: var(--accent);
+      color: #fff;
+      flex-shrink: 0;
+      box-shadow: 0 2px 0 var(--accent-deep), inset 0 1px 0 oklch(74% 0.200 29 / 0.30);
+    }
+    .pc .btn-upload-sm:hover { background: var(--accent-hover); }
+  </style>
+</head>
+<body>
+
+  <div class="page-header">
+    <p class="page-eyebrow">Zync — Pull tab · Option C</p>
+    <p class="page-title">Error handling — all states</p>
+  </div>
+
+  <div class="section">
+    <p class="section-heading">Pull tab states — same height throughout</p>
+    <div class="options-row">
+
+      <!-- State: Idle -->
+      <div class="option-wrap">
+        <p class="option-label">Idle</p>
+        <div class="zync-window pc">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/>
+              </svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Pull</button>
+              <button class="tab-item">Sync</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="pull-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/>
+              </svg>
+            </div>
+            <p class="pull-heading">Enter a sync code</p>
+            <div class="status-zone">
+              <p class="pull-sub">Enter the sync code from your other machine.</p>
+            </div>
+            <div class="code-field">
+              <label class="field-label">Sync code</label>
+              <input class="text-input" type="text" placeholder="ZEN-XXXXXX-XXXXXX" />
+            </div>
+            <button class="btn btn-pull-main">Pull Profile</button>
+            <div class="upload-footer">
+              <div class="upload-footer-text">
+                <p class="upload-footer-label">On the source machine?</p>
+                <p class="upload-footer-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- State: Bad code format -->
+      <div class="option-wrap">
+        <p class="option-label">Invalid code</p>
+        <div class="zync-window pc">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/>
+              </svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Pull</button>
+              <button class="tab-item">Sync</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="pull-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/>
+              </svg>
+            </div>
+            <p class="pull-heading">Enter a sync code</p>
+            <div class="status-zone">
+              <p class="pull-error">That doesn't look like a valid sync code. It should start with ZEN-.</p>
+            </div>
+            <div class="code-field">
+              <label class="field-label">Sync code</label>
+              <input class="text-input is-error" type="text" value="abc123" />
+            </div>
+            <button class="btn btn-pull-main">Pull Profile</button>
+            <div class="upload-footer">
+              <div class="upload-footer-text">
+                <p class="upload-footer-label">On the source machine?</p>
+                <p class="upload-footer-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- State: Expired code -->
+      <div class="option-wrap">
+        <p class="option-label">Expired / not found</p>
+        <div class="zync-window pc">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/>
+              </svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Pull</button>
+              <button class="tab-item">Sync</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="pull-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/>
+              </svg>
+            </div>
+            <p class="pull-heading">Enter a sync code</p>
+            <div class="status-zone">
+              <p class="pull-error">Code not found — it may have expired. Ask the other machine to upload again.</p>
+            </div>
+            <div class="code-field">
+              <label class="field-label">Sync code</label>
+              <input class="text-input is-error" type="text" value="ZEN-A3F9B2-abc123" />
+            </div>
+            <button class="btn btn-pull-main">Pull Profile</button>
+            <div class="upload-footer">
+              <div class="upload-footer-text">
+                <p class="upload-footer-label">On the source machine?</p>
+                <p class="upload-footer-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</body>
+</html>

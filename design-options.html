@@ -1,0 +1,1497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zync — Design Options</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:ital,wght@0,100..900;1,100..900&family=Red+Hat+Mono:wght@400;500;600&display=swap">
+  <style>
+    :root {
+      --bg:             oklch(96.5% 0.012 88);
+      --bg-subtle:      oklch(93.5% 0.018 88);
+      --surface:        oklch(91%   0.022 88);
+      --surface-hover:  oklch(88%   0.026 88);
+      --border:         oklch(83%   0.026 88);
+      --border-light:   oklch(90%   0.018 88);
+      --accent:         oklch(66%   0.200 29);
+      --accent-hover:   oklch(61%   0.200 29);
+      --accent-deep:    oklch(50%   0.200 29);
+      --accent-pale:    oklch(95%   0.036 40);
+      --text:           oklch(19%   0.020 88);
+      --text-muted:     oklch(56%   0.032 88);
+      --text-dim:       oklch(74%   0.022 88);
+      --success-bg:     oklch(93%   0.045 145);
+      --success-text:   oklch(38%   0.130 145);
+      --error-bg:       oklch(94%   0.030 15);
+      --error-text:     oklch(42%   0.150 15);
+      --error-border:   oklch(72%   0.120 15);
+      --font:      'Anybody', sans-serif;
+      --font-mono: 'Red Hat Mono', monospace;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: oklch(88% 0.014 88);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+      padding: 48px 40px 80px;
+      min-width: 1400px;
+    }
+
+    /* ── Page chrome ────────────────────────────────────────── */
+    .page-eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: oklch(50% 0.020 88);
+      font-stretch: 88%;
+      margin-bottom: 6px;
+    }
+    .page-title {
+      font-size: 26px;
+      font-weight: 800;
+      font-stretch: 115%;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 40px;
+    }
+
+    .section { margin-bottom: 64px; }
+    .section-heading {
+      font-size: 11px;
+      font-weight: 700;
+      font-stretch: 88%;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: oklch(50% 0.020 88);
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .section-heading::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: oklch(80% 0.018 88);
+    }
+
+    .options-row {
+      display: flex;
+      gap: 40px;
+      align-items: flex-start;
+    }
+
+    .option-col { display: flex; flex-direction: column; gap: 28px; }
+
+    .option-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: oklch(50% 0.020 88);
+      font-stretch: 88%;
+    }
+
+    .option-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 99px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-left: 8px;
+    }
+    .badge-current { background: oklch(85% 0.020 88); color: oklch(45% 0.025 88); }
+    .badge-pick    { background: oklch(93% 0.045 145); color: oklch(38% 0.130 145); }
+    .badge-new     { background: var(--accent-pale); color: var(--accent-deep); }
+
+    .option-note {
+      font-size: 12px;
+      color: oklch(50% 0.020 88);
+      line-height: 1.55;
+      max-width: 360px;
+      margin-top: 8px;
+    }
+    .option-note strong { color: oklch(30% 0.020 88); font-weight: 600; }
+
+    /* ── Window shell ───────────────────────────────────────── */
+    .zync-window {
+      width: 420px;
+      height: 460px;
+      background: var(--bg);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow:
+        0 8px 40px oklch(19% 0.020 88 / 0.14),
+        0 0 0 1px oklch(83% 0.026 88 / 0.55);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    /* ── Shared primitives ──────────────────────────────────── */
+    .btn {
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: var(--font);
+      font-weight: 700;
+      font-stretch: 90%;
+      letter-spacing: 0.04em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      white-space: nowrap;
+    }
+
+    .field-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .text-input {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 500;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      outline: none;
+      width: 100%;
+      letter-spacing: 0.04em;
+      transition: border-color 0.15s;
+    }
+    .text-input.code { font-size: 15px; letter-spacing: 0.09em; text-align: center; padding: 13px 12px; }
+    .text-input::placeholder { color: var(--text-dim); font-weight: 400; }
+    .text-input.is-error { border-color: var(--error-border); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 2px 0 var(--accent-deep), inset 0 1px 0 oklch(74% 0.200 29 / 0.30);
+    }
+    .btn-secondary {
+      background: var(--text);
+      color: var(--bg);
+      box-shadow: 0 2px 0 oklch(10% 0.015 88), inset 0 1px 0 oklch(35% 0.020 88 / 0.20);
+    }
+    .btn-ghost {
+      background: var(--surface);
+      color: var(--text-muted);
+      box-shadow: 0 0 0 1.5px var(--border-light);
+    }
+    .btn-destructive {
+      background: transparent;
+      color: var(--error-text);
+      box-shadow: 0 0 0 1.5px oklch(42% 0.150 15 / 0.40);
+    }
+
+    /* ── Tab group (shared) ─────────────────────────────────── */
+    .tab-group {
+      position: relative;
+      display: flex;
+      background: var(--surface);
+      border-radius: 10px;
+      padding: 3px;
+    }
+    .tab-item {
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 700;
+      font-stretch: 88%;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-radius: 7px;
+      padding: 5px 16px;
+      cursor: pointer;
+      position: relative;
+      z-index: 1;
+      white-space: nowrap;
+    }
+    .tab-item.active { color: var(--text); }
+    .tab-indicator {
+      position: absolute;
+      top: 3px; bottom: 3px; left: 3px;
+      width: calc(50% - 3px);
+      background: var(--bg);
+      border-radius: 7px;
+      box-shadow: 0 1px 4px oklch(19% 0.020 88 / 0.10), 0 0 0 1px oklch(83% 0.026 88 / 0.5);
+      pointer-events: none;
+    }
+
+    /* ── Icons ──────────────────────────────────────────────── */
+    .icon-circle {
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .icon-circle-pale {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.55);
+      color: var(--text-dim);
+    }
+    .icon-circle-accent {
+      background: var(--accent-pale);
+      border: 1px solid oklch(87% 0.050 40);
+      box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.55);
+      color: var(--accent);
+    }
+
+    /* ── Error / status ─────────────────────────────────────── */
+    .error-inline {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--error-text);
+      background: var(--error-bg);
+      border-radius: 8px;
+      padding: 7px 12px;
+      line-height: 1.45;
+      width: 100%;
+      text-align: left;
+    }
+    .msg-box {
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: center;
+      width: 100%;
+      line-height: 1.4;
+    }
+    .msg-neutral { background: var(--surface); color: var(--text); }
+    .msg-error   { background: var(--error-bg); color: var(--error-text); }
+    .msg-success { background: var(--success-bg); color: var(--success-text); }
+
+    /* ── Orbit animation ────────────────────────────────────── */
+    .sync-orbit {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      flex-shrink: 0;
+    }
+    .sync-orbit::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 1px solid var(--border-light);
+    }
+    .sync-orbit::after {
+      content: '';
+      position: absolute;
+      inset: 13px;
+      border-radius: 50%;
+      border: 1px solid var(--border-light);
+    }
+    .sync-arc {
+      position: absolute;
+      border-radius: 50%;
+      border: 1.5px solid transparent;
+    }
+    .sync-arc-outer {
+      inset: 0;
+      border-top-color: var(--text-dim);
+      animation: orbit-cw 7s linear infinite;
+    }
+    .sync-arc-inner { inset: 13px; opacity: 0; }
+    .sync-core {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .sync-core::before {
+      content: '';
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      animation: core-pulse 3.5s ease-in-out infinite;
+    }
+
+    .connected-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      font-stretch: 88%;
+      color: var(--success-text);
+      background: var(--success-bg);
+      padding: 4px 10px 4px 7px;
+      border-radius: 99px;
+    }
+    .connected-pill::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success-text);
+    }
+
+    @keyframes orbit-cw { to { transform: rotate(360deg); } }
+    @keyframes core-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       OPTION A — Current (as-is)
+    ══════════════════════════════════════════════════════════ */
+
+    /* Header */
+    .oa .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px;
+      height: 58px;
+      background: oklch(94.5% 0.016 88);
+      border-bottom: 1px solid var(--border-light);
+      flex-shrink: 0;
+    }
+    .oa .brand-name {
+      font-size: 14px;
+      font-weight: 800;
+      font-stretch: 88%;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .oa .app-brand { display: flex; align-items: center; gap: 7px; color: var(--text); }
+    .oa .brand-icon { color: var(--accent); }
+
+    /* Sync tab — disconnected */
+    .oa .tab-content {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 20px 22px;
+      flex: 1;
+    }
+    .oa .sync-disconnected {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 0;
+      padding-top: 8px;
+      flex: 1;
+    }
+    .oa .state-icon-wrap {
+      width: 44px;
+      height: 44px;
+      margin-bottom: 12px;
+    }
+    .oa .state-heading {
+      font-size: 15px;
+      font-weight: 800;
+      font-stretch: 105%;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+    .oa .state-zone {
+      min-height: 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 16px;
+      width: 100%;
+    }
+    .oa .sync-intro {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 30ch;
+    }
+    .oa .btn-connect {
+      width: 100%;
+      padding: 14px 20px;
+      font-size: 15px;
+    }
+
+    /* Sync tab — connected */
+    .oa .sync-connected {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 0;
+      flex: 1;
+      padding-top: 4px;
+    }
+    .oa .sync-orbit { margin-bottom: 16px; }
+    .oa .sync-account {
+      font-size: 15px;
+      font-weight: 800;
+      font-stretch: 105%;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+    .oa .sync-repo-name {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+    .oa .connected-pill { margin-bottom: 20px; }
+    .oa .sync-machine-field {
+      width: 100%;
+      text-align: left;
+      margin-bottom: 8px;
+    }
+    .oa .sync-machine-field input {
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 500;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      width: 100%;
+    }
+    .oa .sync-status-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      align-self: flex-start;
+      margin-bottom: 16px;
+    }
+    .oa .sync-footer-actions {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-light);
+      margin-top: auto;
+    }
+    .oa .sync-footer-actions .btn {
+      flex: 1;
+      padding: 10px 16px;
+      font-size: 13px;
+    }
+
+    /* Pull tab */
+    .oa .pull-tab { gap: 0; }
+    .oa .pull-hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding-top: 8px;
+    }
+    .oa .pull-icon-wrap {
+      width: 44px;
+      height: 44px;
+      margin-bottom: 12px;
+    }
+    .oa .pull-heading {
+      font-size: 15px;
+      font-weight: 800;
+      font-stretch: 105%;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+    .oa .pull-status-zone {
+      min-height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      margin-bottom: 16px;
+    }
+    .oa .pull-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 30ch;
+    }
+    .oa .pull-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      margin-bottom: auto;
+    }
+    .oa .pull-form .btn { padding: 14px 20px; font-size: 15px; }
+    .oa .pull-upload-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-light);
+      margin-top: 16px;
+    }
+    .oa .pull-upload-text { flex: 1; }
+    .oa .pull-upload-label { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 1px; }
+    .oa .pull-upload-sub { font-size: 11px; color: var(--text-muted); }
+    .oa .btn-upload-sm {
+      padding: 9px 16px;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+    /* Error state A: msg-box below */
+    .oa .pull-error-msg {
+      font-size: 13px;
+      font-weight: 500;
+      padding: 7px 12px;
+      text-align: left;
+      width: 100%;
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       OPTION B — Status-zone swap + tighter header (last pick)
+    ══════════════════════════════════════════════════════════ */
+
+    .ob .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px 12px;
+      background: oklch(94.5% 0.016 88);
+      border-bottom: 1px solid var(--border-light);
+      flex-shrink: 0;
+    }
+    .ob .brand-name {
+      font-size: 14px;
+      font-weight: 800;
+      font-stretch: 115%;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+    .ob .app-brand { display: flex; align-items: center; gap: 7px; }
+    .ob .brand-icon { color: var(--accent); }
+
+    .ob .tab-content {
+      padding: 24px 22px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      flex: 1;
+    }
+
+    /* Sync disconnected */
+    .ob .sync-disconnected {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      width: 100%;
+      flex: 1;
+    }
+    .ob .state-icon-wrap {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 14px;
+    }
+    .ob .state-heading {
+      font-size: 15px;
+      font-weight: 800;
+      font-stretch: 105%;
+      color: var(--text);
+      margin-bottom: 0;
+    }
+    .ob .state-zone {
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+      width: 100%;
+      margin-top: 10px;
+    }
+    .ob .sync-intro {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.55;
+      max-width: 30ch;
+    }
+    .ob .btn-connect {
+      width: 100%;
+      padding: 13px 20px;
+      font-size: 14px;
+      margin-bottom: auto;
+    }
+
+    /* Sync connected */
+    .ob .sync-connected {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      flex: 1;
+    }
+    .ob .sync-orbit { margin-bottom: 14px; }
+    .ob .sync-account {
+      font-size: 15px;
+      font-weight: 800;
+      font-stretch: 105%;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .ob .sync-repo-name {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      margin-bottom: 10px;
+    }
+    .ob .connected-pill { margin-bottom: 16px; }
+    .ob .sync-machine-field {
+      width: 100%;
+      text-align: left;
+      margin-bottom: 6px;
+    }
+    .ob .sync-machine-field input {
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 500;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      width: 100%;
+    }
+    .ob .sync-status-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      align-self: flex-start;
+      margin-bottom: 14px;
+    }
+    .ob .sync-footer-actions {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-light);
+      margin-top: auto;
+    }
+    .ob .sync-footer-actions .btn {
+      flex: 1;
+      padding: 10px 14px;
+      font-size: 13px;
+    }
+
+    /* Pull tab */
+    .ob .pull-tab { gap: 0; }
+    .ob .pull-icon-wrap {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 14px;
+    }
+    .ob .pull-heading {
+      font-size: 15px;
+      font-weight: 800;
+      font-stretch: 105%;
+      color: var(--text);
+      margin-bottom: 0;
+    }
+    .ob .status-zone {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+      width: 100%;
+      margin-top: 10px;
+    }
+    .ob .pull-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 30ch;
+    }
+    .ob .pull-error {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--error-text);
+      background: var(--error-bg);
+      border-radius: 8px;
+      padding: 7px 12px;
+      line-height: 1.45;
+      width: 100%;
+      text-align: left;
+    }
+    .ob .code-field { width: 100%; text-align: left; margin-bottom: 10px; }
+    .ob .btn-pull-main {
+      width: 100%;
+      padding: 13px 20px;
+      font-size: 14px;
+      margin-bottom: 18px;
+    }
+    .ob .upload-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding-top: 18px;
+      border-top: 1px solid var(--border-light);
+      margin-top: auto;
+    }
+    .ob .upload-footer-text { flex: 1; text-align: left; }
+    .ob .upload-footer-label { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 1px; }
+    .ob .upload-footer-sub { font-size: 11px; color: var(--text-muted); }
+    .ob .btn-upload-sm {
+      padding: 9px 16px;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+
+    /* ══════════════════════════════════════════════════════════
+       OPTION C — Condensed, split-section layout
+    ══════════════════════════════════════════════════════════ */
+
+    .oc .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      height: 52px;
+      background: oklch(94.5% 0.016 88);
+      border-bottom: 1px solid var(--border-light);
+      flex-shrink: 0;
+    }
+    .oc .brand-name {
+      font-size: 13px;
+      font-weight: 800;
+      font-stretch: 88%;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .oc .app-brand { display: flex; align-items: center; gap: 6px; }
+    .oc .brand-icon { color: var(--accent); }
+
+    .oc .tab-content {
+      padding: 20px 22px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    /* Sync disconnected — left-aligned, split layout */
+    .oc .sync-disconnected {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    .oc .sync-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .oc .state-icon-wrap {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .oc .sync-top-text {}
+    .oc .state-heading {
+      font-size: 16px;
+      font-weight: 800;
+      font-stretch: 100%;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .oc .sync-intro {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+    .oc .sync-error {
+      font-size: 12px;
+      color: var(--error-text);
+      min-height: 1em;
+      margin-bottom: 12px;
+    }
+    .oc .btn-connect {
+      width: 100%;
+      padding: 13px 20px;
+      font-size: 14px;
+      margin-top: auto;
+    }
+
+    /* Sync connected */
+    .oc .sync-connected {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    .oc .connected-top {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .oc .sync-orbit { flex-shrink: 0; }
+    .oc .connected-top-text { text-align: left; }
+    .oc .sync-account {
+      font-size: 15px;
+      font-weight: 800;
+      font-stretch: 100%;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .oc .sync-repo-name {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+    .oc .connected-pill { margin-bottom: 16px; align-self: flex-start; }
+    .oc .sync-machine-field {
+      width: 100%;
+      margin-bottom: 6px;
+    }
+    .oc .sync-machine-field input {
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 500;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      width: 100%;
+    }
+    .oc .sync-status-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    .oc .sync-footer-actions {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-light);
+      margin-top: auto;
+    }
+    .oc .sync-footer-actions .btn {
+      flex: 1;
+      padding: 10px 14px;
+      font-size: 13px;
+    }
+
+    /* Pull tab */
+    .oc .pull-tab { gap: 0; }
+    .oc .pull-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .oc .pull-icon-wrap {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .oc .pull-top-text {}
+    .oc .pull-heading {
+      font-size: 16px;
+      font-weight: 800;
+      font-stretch: 100%;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .oc .pull-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+    .oc .pull-error-inline {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--error-text);
+      background: var(--error-bg);
+      border-radius: 8px;
+      padding: 7px 12px;
+      line-height: 1.45;
+      width: 100%;
+      text-align: left;
+      margin-bottom: 10px;
+    }
+    .oc .pull-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+    .oc .pull-form .code-field { margin-bottom: 0; }
+    .oc .btn-pull-main {
+      width: 100%;
+      padding: 13px 20px;
+      font-size: 14px;
+    }
+    .oc .upload-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-light);
+      margin-top: auto;
+    }
+    .oc .upload-footer-text { flex: 1; }
+    .oc .upload-footer-label { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 1px; }
+    .oc .upload-footer-sub { font-size: 11px; color: var(--text-muted); }
+    .oc .btn-upload-sm {
+      padding: 9px 16px;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+  </style>
+</head>
+<body>
+
+  <p class="page-eyebrow">Zync · Design Review</p>
+  <p class="page-title">Layout & Spacing Options</p>
+
+  <!-- ═══════════════════════════════════════════════════════ SYNC TAB ══ -->
+  <div class="section">
+    <p class="section-heading">Sync tab — Disconnected state</p>
+    <div class="options-row">
+
+      <!-- Option A -->
+      <div class="option-col">
+        <p class="option-label">Option A <span class="option-badge badge-current">Current</span></p>
+        <div class="zync-window oa">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Sync</button>
+              <button class="tab-item">Pull</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="sync-disconnected">
+              <div class="icon-circle icon-circle-accent state-icon-wrap">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+              </div>
+              <p class="state-heading">Connect GitHub</p>
+              <div class="state-zone">
+                <p class="sync-intro">Sync your profile across machines and keep version history.</p>
+              </div>
+              <button class="btn btn-primary btn-connect">Connect GitHub</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note"><strong>Centered, tall header.</strong> Brand name condensed + wide-tracked. Icon at 44px. Content floats in center column with margin spacing. 58px header.</p>
+      </div>
+
+      <!-- Option B -->
+      <div class="option-col">
+        <p class="option-label">Option B <span class="option-badge badge-pick">Last pick</span></p>
+        <div class="zync-window ob">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Sync</button>
+              <button class="tab-item">Pull</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="sync-disconnected">
+              <div class="icon-circle icon-circle-accent state-icon-wrap">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+              </div>
+              <p class="state-heading">Connect GitHub</p>
+              <div class="state-zone">
+                <p class="sync-intro">Sync your profile across machines and keep version history.</p>
+              </div>
+              <button class="btn btn-primary btn-connect">Connect GitHub</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note"><strong>Centered, compact header.</strong> Brand name wide + tight-tracked. Icon at 48px. Shorter header (auto height ~40px). This is what was picked — but the header style wasn't applied to the code.</p>
+      </div>
+
+      <!-- Option C -->
+      <div class="option-col">
+        <p class="option-label">Option C <span class="option-badge badge-new">New</span></p>
+        <div class="zync-window oc">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Sync</button>
+              <button class="tab-item">Pull</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="sync-disconnected">
+              <div class="sync-top">
+                <div class="icon-circle icon-circle-accent state-icon-wrap">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.2c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+                </div>
+                <div class="sync-top-text">
+                  <p class="state-heading">Connect GitHub</p>
+                  <p class="sync-intro">Sync your profile across machines and keep a version history.</p>
+                </div>
+              </div>
+              <button class="btn btn-primary btn-connect">Connect GitHub</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note"><strong>Left-aligned split layout.</strong> Icon + heading + body copy in a row, text left-aligned. More editorial feel. Button anchored to bottom. 52px header.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ SYNC CONNECTED ══ -->
+  <div class="section">
+    <p class="section-heading">Sync tab — Connected state</p>
+    <div class="options-row">
+
+      <!-- Option A -->
+      <div class="option-col">
+        <p class="option-label">Option A <span class="option-badge badge-current">Current</span></p>
+        <div class="zync-window oa">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Sync</button>
+              <button class="tab-item">Pull</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="sync-connected">
+              <div class="sync-orbit">
+                <div class="sync-arc sync-arc-outer"></div>
+                <div class="sync-arc sync-arc-inner"></div>
+                <div class="sync-core"></div>
+              </div>
+              <p class="sync-account">jessewallace</p>
+              <p class="sync-repo-name">jessewallace/zync-sync</p>
+              <span class="connected-pill">Connected</span>
+              <div class="sync-machine-field">
+                <label class="field-label">Machine name</label>
+                <input type="text" placeholder="My MacBook Pro" style="font-family: var(--font); font-size:14px; font-weight:500; background:var(--surface); border:1.5px solid var(--border); border-radius:8px; padding:10px 12px; color:var(--text); width:100%;" />
+              </div>
+              <p class="sync-status-text">Last synced just now</p>
+              <div class="sync-footer-actions">
+                <button class="btn btn-ghost">Restore Version</button>
+                <button class="btn btn-destructive">Disconnect</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Option B -->
+      <div class="option-col">
+        <p class="option-label">Option B <span class="option-badge badge-pick">Last pick</span></p>
+        <div class="zync-window ob">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Sync</button>
+              <button class="tab-item">Pull</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="sync-connected">
+              <div class="sync-orbit">
+                <div class="sync-arc sync-arc-outer"></div>
+                <div class="sync-arc sync-arc-inner"></div>
+                <div class="sync-core"></div>
+              </div>
+              <p class="sync-account">jessewallace</p>
+              <p class="sync-repo-name">jessewallace/zync-sync</p>
+              <span class="connected-pill">Connected</span>
+              <div class="sync-machine-field">
+                <label class="field-label">Machine name</label>
+                <input type="text" placeholder="My MacBook Pro" style="font-family: var(--font); font-size:14px; font-weight:500; background:var(--surface); border:1.5px solid var(--border); border-radius:8px; padding:10px 12px; color:var(--text); width:100%;" />
+              </div>
+              <p class="sync-status-text">Last synced just now</p>
+              <div class="sync-footer-actions">
+                <button class="btn btn-ghost">Restore Version</button>
+                <button class="btn btn-destructive">Disconnect</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Option C -->
+      <div class="option-col">
+        <p class="option-label">Option C <span class="option-badge badge-new">New</span></p>
+        <div class="zync-window oc">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item active">Sync</button>
+              <button class="tab-item">Pull</button>
+              <div class="tab-indicator"></div>
+            </div>
+          </header>
+          <div class="tab-content">
+            <div class="sync-connected">
+              <div class="connected-top">
+                <div class="sync-orbit">
+                  <div class="sync-arc sync-arc-outer"></div>
+                  <div class="sync-arc sync-arc-inner"></div>
+                  <div class="sync-core"></div>
+                </div>
+                <div class="connected-top-text">
+                  <p class="sync-account">jessewallace</p>
+                  <p class="sync-repo-name">jessewallace/zync-sync</p>
+                </div>
+              </div>
+              <span class="connected-pill">Connected</span>
+              <div class="sync-machine-field">
+                <label class="field-label">Machine name</label>
+                <input type="text" placeholder="My MacBook Pro" style="font-family: var(--font); font-size:14px; font-weight:500; background:var(--surface); border:1.5px solid var(--border); border-radius:8px; padding:10px 12px; color:var(--text); width:100%;" />
+              </div>
+              <p class="sync-status-text">Last synced just now</p>
+              <div class="sync-footer-actions">
+                <button class="btn btn-ghost">Restore Version</button>
+                <button class="btn btn-destructive">Disconnect</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ PULL TAB ══ -->
+  <div class="section">
+    <p class="section-heading">Pull tab — Idle state</p>
+    <div class="options-row">
+
+      <!-- Option A -->
+      <div class="option-col">
+        <p class="option-label">Option A <span class="option-badge badge-current">Current</span></p>
+        <div class="zync-window oa">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item">Sync</button>
+              <button class="tab-item active">Pull</button>
+              <div class="tab-indicator" style="transform: translateX(100%)"></div>
+            </div>
+          </header>
+          <div class="tab-content pull-tab" style="gap:0">
+            <div class="pull-hero">
+              <div class="icon-circle icon-circle-pale pull-icon-wrap">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/></svg>
+              </div>
+              <p class="pull-heading">Enter a sync code</p>
+              <div class="pull-status-zone">
+                <p class="pull-sub">Enter the sync code from your other machine.</p>
+              </div>
+            </div>
+            <div class="pull-form">
+              <div class="field" style="display:flex;flex-direction:column;gap:5px">
+                <label class="field-label">Sync code</label>
+                <input type="text" class="text-input code" placeholder="ZEN-XXXXXX-XXXXXX" />
+              </div>
+              <button class="btn btn-secondary" style="padding:14px 20px;font-size:15px;">Pull Profile</button>
+            </div>
+            <div class="pull-upload-footer">
+              <div class="pull-upload-text">
+                <p class="pull-upload-label">On the source machine?</p>
+                <p class="pull-upload-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-primary btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note"><strong>Centered hero layout.</strong> Error appears as separate expanding msg-box, causing layout shift. Same 58px header.</p>
+      </div>
+
+      <!-- Option B -->
+      <div class="option-col">
+        <p class="option-label">Option B <span class="option-badge badge-pick">Last pick</span></p>
+        <div class="zync-window ob">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item">Sync</button>
+              <button class="tab-item active">Pull</button>
+              <div class="tab-indicator" style="transform: translateX(100%)"></div>
+            </div>
+          </header>
+          <div class="tab-content pull-tab">
+            <div class="icon-circle icon-circle-pale pull-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/></svg>
+            </div>
+            <p class="pull-heading">Enter a sync code</p>
+            <div class="status-zone">
+              <p class="pull-sub">Enter the sync code from your other machine.</p>
+            </div>
+            <div class="code-field">
+              <label class="field-label">Sync code</label>
+              <input class="text-input code" type="text" placeholder="ZEN-XXXXXX-XXXXXX" />
+            </div>
+            <button class="btn btn-secondary btn-pull-main">Pull Profile</button>
+            <div class="upload-footer">
+              <div class="upload-footer-text">
+                <p class="upload-footer-label">On the source machine?</p>
+                <p class="upload-footer-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-primary btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note"><strong>Centered, no-shift errors.</strong> Status zone swaps subtitle→error in place (no layout jump). Compact header. This is what was designed in the options file last time.</p>
+      </div>
+
+      <!-- Option C -->
+      <div class="option-col">
+        <p class="option-label">Option C <span class="option-badge badge-new">New</span></p>
+        <div class="zync-window oc">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item">Sync</button>
+              <button class="tab-item active">Pull</button>
+              <div class="tab-indicator" style="transform: translateX(100%)"></div>
+            </div>
+          </header>
+          <div class="tab-content pull-tab">
+            <div class="pull-top">
+              <div class="icon-circle icon-circle-pale pull-icon-wrap">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/></svg>
+              </div>
+              <div class="pull-top-text">
+                <p class="pull-heading">Enter a sync code</p>
+                <p class="pull-sub">From your other machine.</p>
+              </div>
+            </div>
+            <div class="pull-form">
+              <div class="code-field">
+                <label class="field-label">Sync code</label>
+                <input class="text-input code" type="text" placeholder="ZEN-XXXXXX-XXXXXX" />
+              </div>
+              <button class="btn btn-secondary btn-pull-main">Pull Profile</button>
+            </div>
+            <div class="upload-footer">
+              <div class="upload-footer-text">
+                <p class="upload-footer-label">On the source machine?</p>
+                <p class="upload-footer-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-primary btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note"><strong>Left-aligned split layout.</strong> Matches the Sync tab's aesthetic. More compact — the left-aligned heading gives extra vertical room to the input + button. Consistent with Option C Sync.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ PULL ERROR ══ -->
+  <div class="section">
+    <p class="section-heading">Pull tab — Error state (code invalid/expired)</p>
+    <div class="options-row">
+
+      <!-- Option A error -->
+      <div class="option-col">
+        <p class="option-label">Option A <span class="option-badge badge-current">Current</span></p>
+        <div class="zync-window oa">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item">Sync</button>
+              <button class="tab-item active">Pull</button>
+              <div class="tab-indicator" style="transform: translateX(100%)"></div>
+            </div>
+          </header>
+          <div class="tab-content pull-tab" style="gap:0">
+            <div class="pull-hero">
+              <div class="icon-circle icon-circle-pale pull-icon-wrap">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/></svg>
+              </div>
+              <p class="pull-heading">Enter a sync code</p>
+              <div class="pull-status-zone" style="margin-bottom:4px">
+                <!-- subtitle hidden when error shows -->
+              </div>
+            </div>
+            <!-- Error msg-box expands below, pushing content down -->
+            <div class="msg-box msg-error pull-error-msg" style="margin-bottom:10px">Code not found — it may have expired. Ask the other machine to upload again.</div>
+            <div class="pull-form">
+              <div class="field" style="display:flex;flex-direction:column;gap:5px">
+                <label class="field-label">Sync code</label>
+                <input type="text" class="text-input code is-error" value="ZEN-A3F9B2-abc123" />
+              </div>
+              <button class="btn btn-secondary" style="padding:14px 20px;font-size:15px;">Pull Profile</button>
+            </div>
+            <div class="pull-upload-footer">
+              <div class="pull-upload-text">
+                <p class="pull-upload-label">On the source machine?</p>
+                <p class="pull-upload-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-primary btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note">Error inserts above the form, pushing everything down. No fixed height reserved — layout shifts when error appears.</p>
+      </div>
+
+      <!-- Option B error -->
+      <div class="option-col">
+        <p class="option-label">Option B <span class="option-badge badge-pick">Last pick</span></p>
+        <div class="zync-window ob">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item">Sync</button>
+              <button class="tab-item active">Pull</button>
+              <div class="tab-indicator" style="transform: translateX(100%)"></div>
+            </div>
+          </header>
+          <div class="tab-content pull-tab">
+            <div class="icon-circle icon-circle-pale pull-icon-wrap">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/></svg>
+            </div>
+            <p class="pull-heading">Enter a sync code</p>
+            <div class="status-zone">
+              <!-- Error swaps IN here — subtitle swaps OUT — same zone, no shift -->
+              <div class="pull-error">Code not found — it may have expired. Ask the other machine to upload again.</div>
+            </div>
+            <div class="code-field">
+              <label class="field-label">Sync code</label>
+              <input class="text-input code is-error" type="text" value="ZEN-A3F9B2-abc123" />
+            </div>
+            <button class="btn btn-secondary btn-pull-main">Pull Profile</button>
+            <div class="upload-footer">
+              <div class="upload-footer-text">
+                <p class="upload-footer-label">On the source machine?</p>
+                <p class="upload-footer-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-primary btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note"><strong>Zero layout shift.</strong> Error swaps into the status zone (same height as subtitle). Input gets an error border. No content movement.</p>
+      </div>
+
+      <!-- Option C error -->
+      <div class="option-col">
+        <p class="option-label">Option C <span class="option-badge badge-new">New</span></p>
+        <div class="zync-window oc">
+          <header class="app-header">
+            <div class="app-brand">
+              <svg class="brand-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span class="brand-name">Zync</span>
+            </div>
+            <div class="tab-group">
+              <button class="tab-item">Sync</button>
+              <button class="tab-item active">Pull</button>
+              <div class="tab-indicator" style="transform: translateX(100%)"></div>
+            </div>
+          </header>
+          <div class="tab-content pull-tab">
+            <div class="pull-top">
+              <div class="icon-circle icon-circle-pale pull-icon-wrap">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M7 13l5 5 5-5"/></svg>
+              </div>
+              <div class="pull-top-text">
+                <p class="pull-heading">Enter a sync code</p>
+                <p class="pull-sub">From your other machine.</p>
+              </div>
+            </div>
+            <!-- Error inline, before input -->
+            <div class="pull-error-inline">Code not found — it may have expired. Ask the other machine to upload again.</div>
+            <div class="pull-form">
+              <div class="code-field">
+                <label class="field-label">Sync code</label>
+                <input class="text-input code is-error" type="text" value="ZEN-A3F9B2-abc123" />
+              </div>
+              <button class="btn btn-secondary btn-pull-main">Pull Profile</button>
+            </div>
+            <div class="upload-footer">
+              <div class="upload-footer-text">
+                <p class="upload-footer-label">On the source machine?</p>
+                <p class="upload-footer-sub">Upload to generate a code first</p>
+              </div>
+              <button class="btn btn-primary btn-upload-sm">Upload ↑</button>
+            </div>
+          </div>
+        </div>
+        <p class="option-note">Error appears between the header and form. Minor shift (less than A) — but left-aligned layout has enough headroom to absorb it without the footer getting clipped.</p>
+      </div>
+
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,89 @@
+<h2>Design direction</h2>
+<p class="subtitle">Pick the aesthetic that feels right for a small sync utility. These are rough sketches — details will be refined later.</p>
+
+<div class="cards" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:4px;">
+
+  <!-- A: Dark / Glassmorphic -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)" style="padding:0;overflow:hidden;">
+    <div style="background:#12101a;padding:12px;border-radius:6px 6px 0 0;">
+      <!-- Tab bar -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;">
+        <div style="background:#7c5cfc;border-radius:4px 4px 0 0;padding:4px 10px;font-size:9px;font-weight:700;color:#fff;font-family:system-ui;">Pull</div>
+        <div style="border-radius:4px 4px 0 0;padding:4px 10px;font-size:9px;font-weight:400;color:rgba(255,255,255,0.35);font-family:system-ui;">Sync</div>
+      </div>
+      <!-- Upload btn -->
+      <div style="background:#7c5cfc;border-radius:6px;padding:7px;text-align:center;font-size:9px;font-weight:700;color:#fff;font-family:system-ui;letter-spacing:0.04em;margin-bottom:8px;">Upload</div>
+      <!-- Divider -->
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;">
+        <div style="flex:1;height:1px;background:rgba(255,255,255,0.12);"></div>
+        <div style="font-size:7px;color:rgba(255,255,255,0.3);font-family:system-ui;">or pull from another machine</div>
+        <div style="flex:1;height:1px;background:rgba(255,255,255,0.12);"></div>
+      </div>
+      <!-- Input -->
+      <div style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 8px;font-size:8px;color:rgba(255,255,255,0.25);font-family:system-ui;margin-bottom:6px;letter-spacing:0.05em;">ZEN-XXXX-XXXX</div>
+      <!-- Pull btn -->
+      <div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px;text-align:center;font-size:9px;font-weight:600;color:rgba(255,255,255,0.7);font-family:system-ui;">Pull</div>
+    </div>
+    <div class="card-body" style="padding:10px 12px;">
+      <h3>Dark glass</h3>
+      <p>Deep purple-black background, violet accent, translucent panels. Matches Zen Browser's own dark aesthetic.</p>
+    </div>
+  </div>
+
+  <!-- B: Clean / Monochrome -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)" style="padding:0;overflow:hidden;">
+    <div style="background:#ffffff;padding:12px;border-radius:6px 6px 0 0;border-bottom:1px solid #e8e8e8;">
+      <!-- Tab bar -->
+      <div style="display:flex;gap:0;margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:0;">
+        <div style="padding:4px 10px 6px;font-size:9px;font-weight:700;color:#111;font-family:system-ui;border-bottom:2px solid #111;margin-bottom:-1px;">Pull</div>
+        <div style="padding:4px 10px 6px;font-size:9px;font-weight:400;color:#aaa;font-family:system-ui;">Sync</div>
+      </div>
+      <!-- Upload btn -->
+      <div style="background:#111;border-radius:6px;padding:7px;text-align:center;font-size:9px;font-weight:700;color:#fff;font-family:system-ui;letter-spacing:0.03em;margin-bottom:8px;">Upload</div>
+      <!-- Divider -->
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;">
+        <div style="flex:1;height:1px;background:#e8e8e8;"></div>
+        <div style="font-size:7px;color:#aaa;font-family:system-ui;">or pull from another machine</div>
+        <div style="flex:1;height:1px;background:#e8e8e8;"></div>
+      </div>
+      <!-- Input -->
+      <div style="background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;font-size:8px;color:#bbb;font-family:system-ui;margin-bottom:6px;letter-spacing:0.05em;">ZEN-XXXX-XXXX</div>
+      <!-- Pull btn -->
+      <div style="background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;padding:7px;text-align:center;font-size:9px;font-weight:600;color:#555;font-family:system-ui;">Pull</div>
+    </div>
+    <div class="card-body" style="padding:10px 12px;">
+      <h3>Clean light</h3>
+      <p>White background, underline tabs, black primary button. Minimal and sharp — like Linear or Raycast.</p>
+    </div>
+  </div>
+
+  <!-- C: Refined warm -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)" style="padding:0;overflow:hidden;">
+    <div style="background:#f5f3ea;padding:12px;border-radius:6px 6px 0 0;">
+      <!-- Tab bar -->
+      <div style="display:flex;gap:0;margin-bottom:12px;background:rgba(0,0,0,0.06);border-radius:6px;padding:3px;">
+        <div style="background:#f5f3ea;border-radius:4px;padding:3px 10px;font-size:9px;font-weight:700;color:#1a1914;font-family:system-ui;box-shadow:0 1px 3px rgba(0,0,0,0.1);">Pull</div>
+        <div style="padding:3px 10px;font-size:9px;font-weight:400;color:rgba(26,25,20,0.45);font-family:system-ui;">Sync</div>
+      </div>
+      <!-- Upload btn -->
+      <div style="background:#e8653a;border-radius:6px;padding:7px;text-align:center;font-size:9px;font-weight:700;color:#fff;font-family:system-ui;letter-spacing:0.03em;margin-bottom:8px;">Upload</div>
+      <!-- Divider -->
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;">
+        <div style="flex:1;height:1px;background:rgba(0,0,0,0.12);"></div>
+        <div style="font-size:7px;color:rgba(26,25,20,0.4);font-family:system-ui;">or pull from another machine</div>
+        <div style="flex:1;height:1px;background:rgba(0,0,0,0.12);"></div>
+      </div>
+      <!-- Input -->
+      <div style="background:rgba(255,255,255,0.6);border:1.5px solid rgba(0,0,0,0.15);border-radius:6px;padding:6px 8px;font-size:8px;color:rgba(26,25,20,0.3);font-family:system-ui;margin-bottom:6px;letter-spacing:0.05em;">ZEN-XXXX-XXXX</div>
+      <!-- Pull btn -->
+      <div style="background:rgba(0,0,0,0.07);border-radius:6px;padding:7px;text-align:center;font-size:9px;font-weight:600;color:rgba(26,25,20,0.65);font-family:system-ui;">Pull</div>
+    </div>
+    <div class="card-body" style="padding:10px 12px;">
+      <h3>Refined warm</h3>
+      <p>Same warm cream base but tightened typography, pill-style tab switcher, more refined spacing. Evolution of current design.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;font-size:12px;">Click one to select, then let me know in the terminal.</p>
