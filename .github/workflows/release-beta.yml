@@ -22,7 +22,9 @@ jobs:
           - platform: macos-latest
             args: --target universal-apple-darwin
           - platform: windows-latest
-            args: ''
+            # MSI requires numeric-only version components; skip it for pre-release tags.
+            # NSIS produces an equivalent .exe installer with no version format restrictions.
+            args: '--bundles nsis'
           - platform: ubuntu-22.04
             args: ''
 
