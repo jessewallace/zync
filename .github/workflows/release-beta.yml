@@ -1,14 +1,17 @@
-name: Release
+name: Release (Beta)
+
+# Triggered by pre-release tags: v1.2.3-beta.1, v1.2.3-rc.1, etc.
+# Publishes a GitHub pre-release that does NOT appear at /releases/latest,
+# so existing users on stable are never offered this build via auto-update.
+# Beta testers download manually from the Releases page.
 
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*.*.*-*'
 
 jobs:
-  release:
-    # Skip pre-release tags (v1.2.3-beta.1, v1.2.3-rc.1) — handled by release-beta.yml
-    if: ${{ !contains(github.ref_name, '-') }}
+  release-beta:
     permissions:
       contents: write
 
@@ -72,26 +75,7 @@ jobs:
             fs.writeFileSync('src-tauri/Cargo.toml', cargo);
           "
 
-      - name: Extract changelog
-        id: changelog
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          node -e "
-            const fs = require('fs');
-            const version = '$VERSION';
-            const lines = fs.readFileSync('CHANGELOG.md', 'utf8').split('\n');
-            let found = false, body = [];
-            for (const line of lines) {
-              if (line === '## ' + version) { found = true; continue; }
-              if (found && line.startsWith('## ')) break;
-              if (found) body.push(line);
-            }
-            const trimmed = body.join('\n').trim();
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'body<<EOF\n' + trimmed + '\nEOF\n');
-          "
-
-      - name: Build and release
+      - name: Build and release (pre-release)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -107,9 +91,9 @@ jobs:
           GITHUB_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Zync ${{ github.ref_name }}'
-          releaseBody: ${{ steps.changelog.outputs.body }}
+          releaseName: 'Zync ${{ github.ref_name }} (Beta)'
+          releaseBody: 'Pre-release build for testing. Not pushed to auto-updater — download manually below.'
           releaseDraft: false
-          prerelease: false
-          includeUpdaterJson: true
+          prerelease: true
+          includeUpdaterJson: false
           args: ${{ matrix.args }}

@@ -131,7 +131,7 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
 // ── Tick helpers ──────────────────────────────────────────────────────────────
 
 async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let (client, was_running, config_dir) = {
+    let (client, was_running, zen_now_running, config_dir) = {
         let mut s = state.lock().unwrap();
         let client = match s.github_client.clone() {
             Some(c) => c,
@@ -140,12 +140,10 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
         let was = s.zen_was_running;
         let now_running = zen_check::is_zen_running();
         s.zen_was_running = now_running;
-        (client, was, s.config_dir.clone())
+        (client, was, now_running, s.config_dir.clone())
     };
 
-    let zen_running = zen_check::is_zen_running();
-
-    if !was_running || zen_running {
+    if !was_running || zen_now_running {
         return; // Not a close edge
     }
 

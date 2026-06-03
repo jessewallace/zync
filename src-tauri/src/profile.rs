@@ -1,10 +1,13 @@
 use std::path::{Path, PathBuf};
 
 /// Files synced by default. Order matters for display.
+///
+/// extensions.json is intentionally excluded: it stores absolute paths to XPI files
+/// that are OS-specific (e.g. /Users/… on macOS vs C:\Users\… on Windows), so syncing
+/// it cross-platform greys out all extensions on the receiving machine.
 pub const SYNC_FILES: &[&str] = &[
     "places.sqlite",
     "prefs.js",
-    "extensions.json",
     "zen-themes.json",
     "zen-keyboard-shortcuts.json",
     "zen-sessions.jsonlz4",
@@ -115,8 +118,17 @@ fn zen_profiles_base() -> Option<PathBuf> {
     return dirs::data_dir().map(|d| d.join("zen\\Profiles"));
 
     #[cfg(target_os = "linux")]
-    // ~/.zen/Profiles
-    return dirs::home_dir().map(|d| d.join(".zen/Profiles"));
+    {
+        // Prefer ~/.zen/Profiles (native install); fall back to XDG data dir
+        // (~/.local/share/zen/Profiles) used by some distro packages.
+        let dotzen = dirs::home_dir().map(|d| d.join(".zen/Profiles"));
+        if dotzen.as_ref().map(|p| p.exists()).unwrap_or(false) {
+            return dotzen;
+        }
+        return dirs::data_local_dir()
+            .map(|d| d.join("zen/Profiles"))
+            .or(dotzen);
+    }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     None

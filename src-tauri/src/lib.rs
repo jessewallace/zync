@@ -42,6 +42,12 @@ impl UpdateStore {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // A second instance was launched — focus the existing window instead.
+            if let Some(w) = app.get_webview_window("main") {
+                show_window(&w);
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
@@ -89,8 +95,7 @@ pub fn run() {
 
             // First run: show window so user can connect GitHub
             if !github::has_stored_token() {
-                window.show().unwrap();
-                let _ = window.set_focus();
+                show_window(&window);
             }
 
             let config_dir = app.path().app_config_dir().unwrap_or_default();
@@ -198,8 +203,7 @@ async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
     if manual {
         match app.get_webview_window("main") {
             Some(w) => {
-                let _ = w.show();
-                let _ = w.set_focus();
+                show_window(&w);
             }
             None => {
                 eprintln!("[updater] main window not found; falling back to notification");
@@ -389,14 +393,32 @@ fn setup_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Err
 
     #[cfg(not(target_os = "macos"))]
     {
-        use tauri::menu::Submenu;
-        let help = Submenu::with_items(
-            app,
-            "Help",
-            true,
-            &[&check_item as &dyn tauri::menu::IsMenuItem<tauri::Wry>],
-        )?;
-        menu.append(&help)?;
+        use tauri::menu::{MenuItemKind, Submenu};
+        // Tauri's default menu already contains a Help submenu on Windows/Linux.
+        // Find it and insert the check-for-updates item there instead of appending
+        // a second Help submenu, which caused a duplicate "Help" entry in the titlebar.
+        let existing_help = menu.items()?.into_iter().find_map(|item| {
+            if let MenuItemKind::Submenu(sub) = item {
+                if sub.text().ok().as_deref()
+                    .map(|t| t.to_lowercase().contains("help"))
+                    .unwrap_or(false)
+                {
+                    return Some(sub);
+                }
+            }
+            None
+        });
+        if let Some(help_sub) = existing_help {
+            help_sub.insert(&check_item, 0)?;
+        } else {
+            let help = Submenu::with_items(
+                app,
+                "Help",
+                true,
+                &[&check_item as &dyn tauri::menu::IsMenuItem<tauri::Wry>],
+            )?;
+            menu.append(&help)?;
+        }
     }
 
     menu.set_as_app_menu()?;
@@ -430,8 +452,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::err
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => {
                 if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
+                    show_window(&w);
                 }
             }
             "sync_now" => {
@@ -453,8 +474,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::err
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
+                        show_window(&w);
                     }
                     let store = app.state::<std::sync::Arc<UpdateStore>>();
                     let version = store.version.lock().unwrap().clone().unwrap_or_default();
@@ -477,14 +497,21 @@ fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::err
             {
                 let app = tray.app_handle();
                 if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
+                    show_window(&w);
                 }
             }
         })
         .build(app)?;
 
     Ok(menu)
+}
+
+/// Show a window that may be hidden, minimized, or off-screen.
+/// Calls unminimize before show so a taskbar-minimized window actually appears.
+fn show_window(w: &tauri::WebviewWindow) {
+    let _ = w.unminimize();
+    let _ = w.show();
+    let _ = w.set_focus();
 }
 
 #[tauri::command]
