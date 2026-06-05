@@ -109,11 +109,15 @@ pub fn run() {
             // Restore GitHub client from keychain in the background
             {
                 let state_clone = state_for_cache.clone();
+                let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     match github::GitHubClient::from_keychain().await {
                         Ok(Some(client)) => {
                             state_clone.lock().unwrap().github_client = Some(Arc::new(client));
                             eprintln!("[zync] GitHub client restored from keychain");
+                            // Notify the UI so the Sync tab switches to Connected without
+                            // requiring the user to click "Connect GitHub" again.
+                            let _ = app_handle.emit("sync-updated", ());
                         }
                         Ok(None) => eprintln!("[zync] No GitHub token found"),
                         Err(e) => eprintln!("[zync] GitHub restore failed: {e}"),

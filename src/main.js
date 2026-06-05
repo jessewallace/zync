@@ -407,11 +407,10 @@ function renderSnapshotList(snapshots) {
   });
 }
 
-// Listen for sync updates from daemon
+// Listen for sync updates from daemon (also fires after the backend restores the
+// GitHub client from the keychain on startup, so the Sync tab can flip to Connected).
 window.__TAURI__.event.listen('sync-updated', () => {
-  if (syncConnected.style.display !== 'none') {
-    loadSyncStatus();
-  }
+  loadSyncStatus();
   const orbit = document.querySelector('.sync-orbit');
   if (orbit) {
     orbit.classList.add('is-syncing');
@@ -523,6 +522,27 @@ async function initUpdateListener() {
 
 // ── Init ──────────────────────────────────────────────────────
 
+// Backend keychain restore (verify token + GitHub API round-trips) can take a
+// couple seconds. The initial loadSyncStatus() may therefore see "disconnected".
+// Poll a few times so the Sync tab flips to Connected once restore finishes,
+// without the user having to click "Connect GitHub" again. Stops early once
+// connected, or as soon as the user has connected manually.
+async function pollForRestoredConnection(retries = 5, delayMs = 700) {
+  for (let i = 0; i < retries; i++) {
+    if (syncConnected.style.display !== 'none') return; // already connected
+    await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      const status = await invoke('get_sync_status_cmd');
+      if (status.connected) {
+        await loadSyncStatus();
+        return;
+      }
+    } catch (_) {
+      // keep retrying — backend may still be restoring
+    }
+  }
+}
+
 async function init() {
   await initUpdateListener();
   console.log(
@@ -532,6 +552,9 @@ async function init() {
   );
   showScreen("screen-main");
   showTab("sync");
+  // showTab('sync') already triggered an immediate loadSyncStatus(); retry in the
+  // background to catch the slower keychain restore.
+  pollForRestoredConnection();
 }
 
 document.addEventListener("DOMContentLoaded", init);
