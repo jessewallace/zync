@@ -83,7 +83,8 @@ pub fn run() {
             });
 
             // Close button hides to tray instead of quitting
-            let window = app.get_webview_window("main")
+            let window = app
+                .get_webview_window("main")
                 .ok_or("main window not found")?;
             let win = window.clone();
             window.on_window_event(move |event| {
@@ -155,7 +156,8 @@ async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
         Err(e) => {
             eprintln!("[updater] init error: {e}");
             if manual {
-                let _ = app.notification()
+                let _ = app
+                    .notification()
                     .builder()
                     .title("Update check failed")
                     .body("Could not check for updates. Please check your internet connection.")
@@ -169,7 +171,8 @@ async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
         Ok(Some(u)) => u,
         Ok(None) => {
             if manual {
-                let _ = app.notification()
+                let _ = app
+                    .notification()
                     .builder()
                     .title("Zync is up to date")
                     .body("You're running the latest version.")
@@ -180,7 +183,8 @@ async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
         Err(e) => {
             eprintln!("[updater] check error: {e}");
             if manual {
-                let _ = app.notification()
+                let _ = app
+                    .notification()
                     .builder()
                     .title("Update check failed")
                     .body("Could not check for updates. Please check your internet connection.")
@@ -207,27 +211,38 @@ async fn check_for_updates(app: &tauri::AppHandle, manual: bool) {
             }
             None => {
                 eprintln!("[updater] main window not found; falling back to notification");
-                let _ = app.notification()
+                let _ = app
+                    .notification()
                     .builder()
                     .title("Zync update available")
-                    .body(format!("Zync {} is ready — open the tray to install", version))
+                    .body(format!(
+                        "Zync {} is ready — open the tray to install",
+                        version
+                    ))
                     .show();
             }
         }
     } else {
         // Background check: notify via OS notification
-        let _ = app.notification()
+        let _ = app
+            .notification()
             .builder()
             .title("Zync update available")
-            .body(format!("Zync {} is ready — open the tray to install", version))
+            .body(format!(
+                "Zync {} is ready — open the tray to install",
+                version
+            ))
             .show();
     }
 
     // Emit to frontend
-    let _ = app.emit("update-available", serde_json::json!({
-        "version": version,
-        "notes": notes,
-    }));
+    let _ = app.emit(
+        "update-available",
+        serde_json::json!({
+            "version": version,
+            "notes": notes,
+        }),
+    );
 
     // Rebuild tray menu with install item
     rebuild_tray_with_update(app, &version);
@@ -240,25 +255,42 @@ fn rebuild_tray_with_update(app: &tauri::AppHandle, version: &str) {
         format!("Install update ({})", version),
         true,
         None::<&str>,
-    ) else { return };
-    let Ok(sep1) = PredefinedMenuItem::separator(app) else { return };
+    ) else {
+        return;
+    };
+    let Ok(sep1) = PredefinedMenuItem::separator(app) else {
+        return;
+    };
 
     // Reuse existing menu items by looking them up from the stored base menu.
     let base_menu = app.state::<Arc<TrayMenuState>>();
-    let Some(open) = base_menu.menu.get("open") else { return };
-    let Some(sync_now) = base_menu.menu.get("sync_now") else { return };
-    let Ok(sep2) = PredefinedMenuItem::separator(app) else { return };
-    let Some(quit) = base_menu.menu.get("quit") else { return };
+    let Some(open) = base_menu.menu.get("open") else {
+        return;
+    };
+    let Some(sync_now) = base_menu.menu.get("sync_now") else {
+        return;
+    };
+    let Ok(sep2) = PredefinedMenuItem::separator(app) else {
+        return;
+    };
+    let Some(quit) = base_menu.menu.get("quit") else {
+        return;
+    };
 
     // MenuItemKind implements IsMenuItem, so it can be used directly in with_items.
-    let Ok(menu) = Menu::with_items(app, &[
-        &install as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
-        &sep1,
-        &open as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
-        &sync_now as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
-        &sep2,
-        &quit as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
-    ]) else { return };
+    let Ok(menu) = Menu::with_items(
+        app,
+        &[
+            &install as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+            &sep1,
+            &open as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+            &sync_now as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+            &sep2,
+            &quit as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+        ],
+    ) else {
+        return;
+    };
 
     if let Some(tray) = app.tray_by_id("zync-tray") {
         if let Err(e) = tray.set_menu(Some(menu)) {
@@ -304,19 +336,30 @@ fn disconnect_github_cmd(
 async fn get_snapshots_cmd(
     state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
 ) -> Result<Vec<SnapshotInfo>, String> {
-    let client = state.lock().unwrap().github_client.clone()
+    let client = state
+        .lock()
+        .unwrap()
+        .github_client
+        .clone()
         .ok_or("Not connected to GitHub")?;
-    let metadata = client.read_metadata().await?
+    let metadata = client
+        .read_metadata()
+        .await?
         .ok_or("No sync data found — push from another machine first")?;
     let current_slot = metadata.metadata.current_slot;
-    let infos = metadata.metadata.slots.iter().map(|s| SnapshotInfo {
-        slot: s.slot,
-        version: s.version,
-        pushed_at: s.pushed_at.clone(),
-        machine_name: s.machine_name.clone(),
-        size_mb: s.size_bytes as f32 / 1_048_576.0,
-        is_current: s.slot == current_slot,
-    }).collect();
+    let infos = metadata
+        .metadata
+        .slots
+        .iter()
+        .map(|s| SnapshotInfo {
+            slot: s.slot,
+            version: s.version,
+            pushed_at: s.pushed_at.clone(),
+            machine_name: s.machine_name.clone(),
+            size_mb: s.size_bytes as f32 / 1_048_576.0,
+            is_current: s.slot == current_slot,
+        })
+        .collect();
     Ok(infos)
 }
 
@@ -329,10 +372,17 @@ async fn restore_snapshot_cmd(
     if zen_check::is_zen_running() {
         return Err("Close Zen before restoring a snapshot.".into());
     }
+    let _sync_lock = daemon::try_acquire_sync(state.inner())
+        .ok_or("Sync already in progress — try again in a moment")?;
     let (client, machine_name, last_known, config_dir) = {
         let s = state.lock().unwrap();
         let c = s.github_client.clone().ok_or("Not connected to GitHub")?;
-        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version, s.config_dir.clone())
+        (
+            c,
+            s.local_state.machine_name.clone(),
+            s.local_state.last_known_version,
+            s.config_dir.clone(),
+        )
     };
 
     sync::github_pull(&client, slot).await?;
@@ -348,7 +398,7 @@ async fn restore_snapshot_cmd(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
-                        .as_secs()
+                        .as_secs(),
                 );
                 s.last_synced_from = None;
                 let _ = s.local_state.save(&config_dir);
@@ -399,7 +449,10 @@ fn setup_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Err
         // a second Help submenu, which caused a duplicate "Help" entry in the titlebar.
         let existing_help = menu.items()?.into_iter().find_map(|item| {
             if let MenuItemKind::Submenu(sub) = item {
-                if sub.text().ok().as_deref()
+                if sub
+                    .text()
+                    .ok()
+                    .as_deref()
                     .map(|t| t.to_lowercase().contains("help"))
                     .unwrap_or(false)
                 {
@@ -438,7 +491,13 @@ fn setup_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Err
 fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let open = MenuItem::with_id(app, "open", "Open Zync", true, None::<&str>)?;
     let sync_now = MenuItem::with_id(app, "sync_now", "Sync now", true, None::<&str>)?;
-    let check_updates = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
+    let check_updates = MenuItem::with_id(
+        app,
+        "check_updates",
+        "Check for updates",
+        true,
+        None::<&str>,
+    )?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &sync_now, &check_updates, &sep, &quit])?;
@@ -479,10 +538,13 @@ fn setup_tray(app: &mut tauri::App) -> Result<Menu<tauri::Wry>, Box<dyn std::err
                     let store = app.state::<std::sync::Arc<UpdateStore>>();
                     let version = store.version.lock().unwrap().clone().unwrap_or_default();
                     let notes = store.notes.lock().unwrap().clone().unwrap_or_default();
-                    let _ = app.emit("update-available", serde_json::json!({
-                        "version": version,
-                        "notes": notes,
-                    }));
+                    let _ = app.emit(
+                        "update-available",
+                        serde_json::json!({
+                            "version": version,
+                            "notes": notes,
+                        }),
+                    );
                 });
             }
             "quit" => app.exit(0),
@@ -519,7 +581,11 @@ async fn install_update(
     app: tauri::AppHandle,
     store: tauri::State<'_, std::sync::Arc<UpdateStore>>,
 ) -> Result<(), String> {
-    let update = store.update.lock().await.take()
+    let update = store
+        .update
+        .lock()
+        .await
+        .take()
         .ok_or_else(|| "No pending update".to_string())?;
     update
         .download_and_install(|_chunk, _total| {}, || {})

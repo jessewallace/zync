@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 use crate::{ntfy, pairing, sync, zen_check};
@@ -46,6 +46,23 @@ impl Default for DaemonState {
     }
 }
 
+pub struct SyncLock {
+    flag: Arc<AtomicBool>,
+}
+
+impl Drop for SyncLock {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::SeqCst);
+    }
+}
+
+pub fn try_acquire_sync(state: &Arc<Mutex<DaemonState>>) -> Option<SyncLock> {
+    let flag = state.lock().unwrap().is_syncing.clone();
+    flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .ok()
+        .map(|_| SyncLock { flag })
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
 #[derive(serde::Serialize, Clone)]
@@ -59,9 +76,7 @@ pub struct SyncStatus {
 }
 
 #[tauri::command]
-pub fn get_sync_status_cmd(
-    state: tauri::State<Arc<Mutex<DaemonState>>>,
-) -> SyncStatus {
+pub fn get_sync_status_cmd(state: tauri::State<Arc<Mutex<DaemonState>>>) -> SyncStatus {
     let s = state.lock().unwrap();
     SyncStatus {
         connected: s.github_client.is_some(),
@@ -80,11 +95,20 @@ pub async fn manual_sync_now_cmd(
     if zen_check::is_zen_running() {
         return Err("Zen is running — close it before syncing".into());
     }
+    let _sync_lock = try_acquire_sync(state.inner())
+        .ok_or("Sync already in progress — try again in a moment")?;
     let (client, machine_name, last_known, config_dir) = {
         let s = state.lock().unwrap();
-        let c = s.github_client.clone()
+        let c = s
+            .github_client
+            .clone()
             .ok_or("Not connected to GitHub — set up sync in the Sync tab first")?;
-        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version, s.config_dir.clone())
+        (
+            c,
+            s.local_state.machine_name.clone(),
+            s.local_state.last_known_version,
+            s.config_dir.clone(),
+        )
     };
 
     match sync::github_push(&client, &machine_name, last_known).await {
@@ -115,7 +139,10 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
         let state = state.clone();
         tauri::async_runtime::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-            loop { interval.tick().await; zen_watcher_tick(&app, &state).await; }
+            loop {
+                interval.tick().await;
+                zen_watcher_tick(&app, &state).await;
+            }
         });
     }
     {
@@ -123,7 +150,10 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
         let state = state.clone();
         tauri::async_runtime::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-            loop { interval.tick().await; ntfy_poll_tick(&app, &state).await; }
+            loop {
+                interval.tick().await;
+                ntfy_poll_tick(&app, &state).await;
+            }
         });
     }
 }
@@ -144,20 +174,20 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
     };
 
     if !was_running || zen_now_running {
+        if !zen_now_running {
+            if let Some(_sync_lock) = try_acquire_sync(state) {
+                drain_pending_pull(&client, app, state, &config_dir).await;
+            }
+        }
         return; // Not a close edge
     }
 
-    // Zen just closed — check if there's a pending pull first
-    let pending = state.lock().unwrap().pending_version.take();
-
-    if let Some(pending_ver) = pending {
-        handle_pull(&client, pending_ver, app, state, &config_dir).await;
+    let Some(_sync_lock) = try_acquire_sync(state) else {
         return;
-    }
+    };
 
-    // Guard against concurrent syncs
-    let is_syncing = state.lock().unwrap().is_syncing.clone();
-    if is_syncing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+    // Zen just closed — check if there's a pending pull first
+    if drain_pending_pull(&client, app, state, &config_dir).await {
         return;
     }
 
@@ -168,13 +198,11 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
         Ok(None) => 0,
         Err(e) => {
             show_notification(app, &format!("Sync check failed: {e}"));
-            is_syncing.store(false, Ordering::SeqCst);
             return;
         }
     };
 
     if github_version > last_known {
-        is_syncing.store(false, Ordering::SeqCst);
         handle_pull(&client, github_version, app, state, &config_dir).await;
         return;
     }
@@ -205,8 +233,6 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
         }
         Err(e) => show_notification(app, &format!("Auto-push failed: {e}")),
     }
-
-    is_syncing.store(false, Ordering::SeqCst);
 }
 
 async fn handle_pull(
@@ -215,18 +241,29 @@ async fn handle_pull(
     app: &tauri::AppHandle,
     state: &Arc<Mutex<DaemonState>>,
     config_dir: &std::path::Path,
-) {
-    let (slot, pusher) = match client.read_metadata().await {
+) -> bool {
+    let (slot, pusher, applied_version) = match client.read_metadata().await {
         Ok(Some(m)) if m.metadata.version == version => {
-            let pusher = m.metadata.slots.first()
+            let pusher = m
+                .metadata
+                .slots
+                .iter()
+                .find(|s| s.slot == m.metadata.current_slot)
                 .map(|s| s.machine_name.clone())
                 .unwrap_or_else(|| "another machine".to_string());
-            (m.metadata.current_slot, pusher)
+            (m.metadata.current_slot, pusher, m.metadata.version)
         }
-        Ok(Some(m)) => (m.metadata.current_slot, "another machine".to_string()),
+        Ok(Some(m)) => {
+            let applied_version = m.metadata.version;
+            (
+                m.metadata.current_slot,
+                "another machine".to_string(),
+                applied_version,
+            )
+        }
         _ => {
             show_notification(app, "Auto-pull failed: could not read sync metadata");
-            return;
+            return false;
         }
     };
 
@@ -237,7 +274,7 @@ async fn handle_pull(
                 let mut s = state.lock().unwrap();
                 s.last_synced = Some(now);
                 s.last_synced_from = Some(pusher.clone());
-                s.local_state.last_known_version = version;
+                s.local_state.last_known_version = applied_version;
                 let _ = s.local_state.save(config_dir);
             }
             let _ = app.emit("sync-updated", get_status_payload(state));
@@ -245,16 +282,42 @@ async fn handle_pull(
                 app,
                 &format!("{pusher} pushed a profile while Zen was open. Their profile has been applied. Your session's changes are saved as a snapshot."),
             );
+            true
         }
-        Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
+        Err(e) => {
+            show_notification(app, &format!("Auto-pull failed: {e}"));
+            false
+        }
+    }
+}
+
+async fn drain_pending_pull(
+    client: &crate::github::GitHubClient,
+    app: &tauri::AppHandle,
+    state: &Arc<Mutex<DaemonState>>,
+    config_dir: &std::path::Path,
+) -> bool {
+    let pending = state.lock().unwrap().pending_version.take();
+    if let Some(version) = pending {
+        if !handle_pull(client, version, app, state, config_dir).await {
+            state.lock().unwrap().pending_version = Some(version);
+        }
+        true
+    } else {
+        false
     }
 }
 
 async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
     let (client, since, config_dir) = {
         let s = state.lock().unwrap();
-        let client = match s.github_client.clone() { Some(c) => c, None => return };
-        let since = s.last_ntfy_id.clone()
+        let client = match s.github_client.clone() {
+            Some(c) => c,
+            None => return,
+        };
+        let since = s
+            .last_ntfy_id
+            .clone()
             .unwrap_or_else(|| s.last_poll_time.to_string());
         (client, since, s.config_dir.clone())
     };
@@ -266,7 +329,6 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         Ok(m) => m,
         Err(e) => {
             eprintln!("[zync] ntfy poll error: {e}");
-            state.lock().unwrap().last_poll_time = poll_start;
             return;
         }
     };
@@ -276,19 +338,22 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         s.last_poll_time = poll_start;
     }
 
-    let Some(latest) = messages.iter().max_by_key(|m| m.time) else { return };
-    state.lock().unwrap().last_ntfy_id = Some(latest.id.clone());
+    let Some(latest) = messages.iter().max_by_key(|m| m.time) else {
+        return;
+    };
 
     let version = match ntfy::parse_version_message(&latest.message) {
         Some(v) => v,
         None => {
             eprintln!("[zync] ntfy: unrecognised message: {}", latest.message);
+            state.lock().unwrap().last_ntfy_id = Some(latest.id.clone());
             return;
         }
     };
 
     let last_known = state.lock().unwrap().local_state.last_known_version;
     if version <= last_known {
+        state.lock().unwrap().last_ntfy_id = Some(latest.id.clone());
         return;
     }
 
@@ -296,8 +361,13 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
     if zen_running {
         state.lock().unwrap().pending_version = Some(version);
         show_notification(app, "New profile available — will sync when Zen closes");
+        state.lock().unwrap().last_ntfy_id = Some(latest.id.clone());
+    } else if let Some(_sync_lock) = try_acquire_sync(state) {
+        if handle_pull(&client, version, app, state, &config_dir).await {
+            state.lock().unwrap().last_ntfy_id = Some(latest.id.clone());
+        }
     } else {
-        handle_pull(&client, version, app, state, &config_dir).await;
+        state.lock().unwrap().pending_version = Some(version);
     }
 }
 

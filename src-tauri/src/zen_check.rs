@@ -27,9 +27,13 @@ pub fn is_zen_running() -> bool {
             return false;
         }
         // Only block if Zen belongs to the same user account as Zync.
-        // If UIDs can't be resolved, default to false — don't block on uncertainty.
+        // On Windows, user IDs may be unavailable; if the process name matches,
+        // treat Zen as running so we do not write profile files while they are locked.
         match (&my_uid, p.user_id()) {
             (Some(mine), Some(theirs)) => mine == theirs,
+            #[cfg(target_os = "windows")]
+            _ => true,
+            #[cfg(not(target_os = "windows"))]
             _ => false,
         }
     })
