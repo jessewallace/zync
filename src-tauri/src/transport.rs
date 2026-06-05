@@ -8,8 +8,8 @@
 // This lets the pull machine reconstruct BOTH the download URL and the
 // decryption key from a single code, with no relay server required.
 
-const LITTERBOX_API: &str =
-    "https://litterbox.catbox.moe/resources/internals/api.php";
+const LITTERBOX_API: &str = "https://litterbox.catbox.moe/resources/internals/api.php";
+const HTTP_TIMEOUT_SECS: u64 = 30;
 
 pub struct UploadResult {
     pub url: String,
@@ -28,7 +28,7 @@ pub async fn upload(data: Vec<u8>) -> Result<UploadResult, String> {
         .text("time", "1h")
         .part("fileToUpload", file_part);
 
-    let client = reqwest::Client::new();
+    let client = http_client()?;
     let response = client
         .post(LITTERBOX_API)
         .multipart(form)
@@ -56,7 +56,10 @@ pub async fn upload(data: Vec<u8>) -> Result<UploadResult, String> {
 
 /// Download raw bytes from a Litterbox URL.
 pub async fn download(url: &str) -> Result<Vec<u8>, String> {
-    let response = reqwest::get(url)
+    let client = http_client()?;
+    let response = client
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Download failed: {e}"))?;
 
@@ -75,13 +78,22 @@ pub async fn download(url: &str) -> Result<Vec<u8>, String> {
     Ok(bytes.to_vec())
 }
 
+fn http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))
+}
+
 /// Extract the Litterbox file ID from a response URL.
 /// e.g. "https://litter.catbox.moe/abc123.bin" → "abc123"
 /// Returns None if the URL can't be parsed.
 pub fn extract_file_id_from_url(url: &str) -> Option<String> {
     let filename = url.trim().rsplit('/').next()?;
     let id = filename.strip_suffix(".bin").unwrap_or(filename);
-    if id.is_empty() { return None; }
+    if id.is_empty() {
+        return None;
+    }
     Some(id.to_lowercase())
 }
 
@@ -111,9 +123,6 @@ pub fn parse_sync_code(code: &str) -> Option<(String, String)> {
     if key_hex.is_empty() || file_id.is_empty() {
         return None;
     }
-    let url = format!(
-        "https://litter.catbox.moe/{}.bin",
-        file_id.to_lowercase()
-    );
+    let url = format!("https://litter.catbox.moe/{}.bin", file_id.to_lowercase());
     Some((key_hex.to_string(), url))
 }

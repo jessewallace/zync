@@ -3,7 +3,12 @@ const NTFY_BASE: &str = "https://ntfy.sh";
 static HTTP_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
 
 fn client() -> &'static reqwest::Client {
-    HTTP_CLIENT.get_or_init(reqwest::Client::new)
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .expect("failed to build ntfy HTTP client")
+    })
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -42,10 +47,7 @@ pub async fn publish(topic: &str, file_id: &str) -> Result<(), String> {
 /// `since` is either a message ID or a Unix timestamp string.
 /// The caller is responsible for advancing `since` between calls
 /// so messages published between polls are never skipped.
-pub async fn poll_since(
-    topic: &str,
-    since: &str,
-) -> Result<Vec<NtfyMessage>, String> {
+pub async fn poll_since(topic: &str, since: &str) -> Result<Vec<NtfyMessage>, String> {
     let url = format!("{NTFY_BASE}/{topic}/json?poll=1&since={since}");
 
     let resp = client()
@@ -62,7 +64,10 @@ pub async fn poll_since(
         return Err(format!("ntfy returned HTTP {}", status));
     }
 
-    let body = resp.text().await.map_err(|e| format!("ntfy read failed: {e}"))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("ntfy read failed: {e}"))?;
     Ok(parse_lines(&body))
 }
 
