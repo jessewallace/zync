@@ -4,6 +4,9 @@ use tauri::Emitter;
 
 use crate::{ntfy, pairing, sync, zen_check};
 
+/// How often the background ntfy poller checks for new profiles from other machines.
+const NTFY_POLL_INTERVAL_SECS: u64 = 10;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 pub struct DaemonState {
@@ -132,7 +135,7 @@ pub async fn manual_sync_now_cmd(
 
 /// Spawn two background loops:
 ///   - Zen process watcher (every 5 s) — triggers push/pull on close
-///   - ntfy poller (every 60 s) — pulls new profiles from other machines
+///   - ntfy poller (every 10 s) — pulls new profiles from other machines
 pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
     {
         let app = app.clone();
@@ -149,7 +152,8 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
         let app = app.clone();
         let state = state.clone();
         tauri::async_runtime::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(NTFY_POLL_INTERVAL_SECS));
             loop {
                 interval.tick().await;
                 ntfy_poll_tick(&app, &state).await;
