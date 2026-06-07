@@ -21,6 +21,7 @@ function relativeTime(unixSecs) {
 function showScreen(id) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
+  if (id === "screen-main") updateInstallPathDisplay();
 }
 
 function showTab(name) {
@@ -125,7 +126,7 @@ function renderInstallationRow(inst) {
 
   const badge = document.createElement("span");
   badge.className = "install-badge";
-  const typeLabels = { native: "Native", xdg: "XDG", flatpak: "Flatpak", snap: "Snap", custom: "Custom" };
+  const typeLabels = { native: "Native", "xdg-config": "XDG Config", xdg: "XDG", flatpak: "Flatpak", snap: "Snap", custom: "Custom" };
   badge.textContent = typeLabels[inst.installType] || inst.installType;
 
   const pathEl = document.createElement("div");
@@ -168,18 +169,37 @@ function renderInstallationRow(inst) {
   return row;
 }
 
-function showInstallSelector(msg) {
+function showInstallSelector(msg, diags, isFirstTime = false) {
   showScreen("screen-select-install");
   document.getElementById("btn-push").disabled = true;
   document.getElementById("btn-pull").disabled = true;
+  document.getElementById("btn-si-back").classList.toggle("hidden", isFirstTime);
 
   const sub = document.getElementById("si-sub");
   sub.textContent = msg ?? "Choose which Zen profile to sync.";
 
   const list = document.getElementById("install-list");
   list.innerHTML = "";
-  if (pendingInstallations) {
+  if (pendingInstallations && pendingInstallations.length > 0) {
     pendingInstallations.forEach((inst) => list.appendChild(renderInstallationRow(inst)));
+    document.getElementById("btn-show-custom-path").style.display = "";
+    document.getElementById("custom-path-form").classList.add("hidden");
+    document.getElementById("si-diagnostics").classList.add("hidden");
+  } else {
+    document.getElementById("btn-show-custom-path").style.display = "none";
+    document.getElementById("custom-path-form").classList.remove("hidden");
+    showDiagnostics(diags);
+  }
+}
+
+function showDiagnostics(diags) {
+  const el = document.getElementById("si-diagnostics");
+  const textEl = document.getElementById("si-diagnostics-text");
+  if (diags && diags.length > 0) {
+    textEl.textContent = diags.join("\n");
+    el.classList.remove("hidden");
+  } else {
+    el.classList.add("hidden");
   }
 }
 
@@ -189,6 +209,40 @@ function hideInstallSelector() {
   showScreen("screen-main");
   document.getElementById("btn-push").disabled = false;
   document.getElementById("btn-pull").disabled = false;
+}
+
+async function ensureProfileReady(action) {
+  try {
+    const result = await invoke("ensure_profile_ready_cmd");
+    if (result.type === "multipleInstallations") {
+      pendingInstallations = result.value;
+      pendingAction = action;
+      showInstallSelector("You have multiple Zen installations. Pick which one to use.", undefined, true);
+      setStatus("Multiple Zen installations found. Select one.", "neutral");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    const msg = String(err);
+    if (msg.includes("not found") || msg.includes("no longer exists")) {
+      try {
+        const scanResult = await invoke("scan_zen_installations_cmd");
+        pendingInstallations = scanResult.installations;
+        pendingAction = action;
+        if (pendingInstallations.length > 0) {
+          showInstallSelector("Select which Zen installation to use.", undefined, true);
+        } else {
+          showInstallSelector("No Zen installation detected. Enter a custom path below.", scanResult.diagnostics, true);
+        }
+        setStatus("Select a Zen installation to continue.", "neutral");
+      } catch (e) {
+        setStatus("Error scanning installations: " + String(e), "error");
+      }
+      return false;
+    }
+    setStatus(msg, "error");
+    return false;
+  }
 }
 
 // ── Push flow ─────────────────────────────────────────────────
@@ -203,6 +257,9 @@ async function handlePush() {
       setStatus("Zen Browser is still running. Quit it (\u2318Q) first, then try again.", "error");
       return;
     }
+
+    const ready = await ensureProfileReady("push");
+    if (!ready) return;
 
     setStatus("Encrypting and uploading\u2026");
     const syncCode = await invoke("push_profile");
@@ -221,10 +278,28 @@ async function handlePush() {
   } catch (err) {
     const msg = String(err);
     if (msg.startsWith("MULTIPLE_INSTALLATIONS:")) {
-      pendingInstallations = JSON.parse(msg.slice("MULTIPLE_INSTALLATIONS:".length));
-      pendingAction = "push";
-      showInstallSelector("You have multiple Zen installations. Pick which one to upload from.");
-      setStatus("Multiple Zen installations found. Select one.", "neutral");
+      try {
+        pendingInstallations = JSON.parse(msg.slice("MULTIPLE_INSTALLATIONS:".length));
+        pendingAction = "push";
+        showInstallSelector("You have multiple Zen installations. Pick which one to upload from.", undefined, true);
+        setStatus("Multiple Zen installations found. Select one.", "neutral");
+      } catch (e) {
+        setStatus("Error parsing installations. Try rescanning.", "error");
+      }
+    } else if (msg.includes("profile folder not found") || msg.includes("profile path no longer exists")) {
+      try {
+        const scanResult = await invoke("scan_zen_installations_cmd");
+        pendingInstallations = scanResult.installations;
+        pendingAction = "push";
+        if (pendingInstallations.length > 0) {
+          showInstallSelector("Select which Zen installation to upload from.", undefined, true);
+        } else {
+          showInstallSelector("No Zen installation detected. Enter a custom path below.", scanResult.diagnostics, true);
+        }
+        setStatus("Select a Zen installation to continue.", "neutral");
+      } catch (e) {
+        setStatus("Error scanning installations: " + String(e), "error");
+      }
     } else {
       setStatus(msg, "error");
     }
@@ -263,6 +338,9 @@ async function handlePull() {
       return;
     }
 
+    const ready = await ensureProfileReady("pull");
+    if (!ready) return;
+
     setStatus("Downloading and decrypting\u2026");
     const files = await invoke("pull_profile", { syncCode: rawCode });
 
@@ -274,10 +352,28 @@ async function handlePull() {
   } catch (err) {
     const msg = String(err);
     if (msg.startsWith("MULTIPLE_INSTALLATIONS:")) {
-      pendingInstallations = JSON.parse(msg.slice("MULTIPLE_INSTALLATIONS:".length));
-      pendingAction = "pull";
-      showInstallSelector("You have multiple Zen installations. Pick which one to download to.");
-      setStatus("Multiple Zen installations found. Select one.", "neutral");
+      try {
+        pendingInstallations = JSON.parse(msg.slice("MULTIPLE_INSTALLATIONS:".length));
+        pendingAction = "pull";
+        showInstallSelector("You have multiple Zen installations. Pick which one to download to.", undefined, true);
+        setStatus("Multiple Zen installations found. Select one.", "neutral");
+      } catch (e) {
+        setStatus("Error parsing installations. Try rescanning.", "error");
+      }
+    } else if (msg.includes("profile folder not found") || msg.includes("profile path no longer exists")) {
+      try {
+        const scanResult = await invoke("scan_zen_installations_cmd");
+        pendingInstallations = scanResult.installations;
+        pendingAction = "pull";
+        if (pendingInstallations.length > 0) {
+          showInstallSelector("Select which Zen installation to download to.", undefined, true);
+        } else {
+          showInstallSelector("No Zen installation detected. Enter a custom path below.", scanResult.diagnostics, true);
+        }
+        setStatus("Select a Zen installation to continue.", "neutral");
+      } catch (e) {
+        setStatus("Error scanning installations: " + String(e), "error");
+      }
     } else {
       setStatus(msg, "error");
       input.classList.add("is-error");
@@ -302,6 +398,7 @@ document.querySelectorAll(".tab-item").forEach((tab) => {
     const name = tab.dataset.tab;
     showTab(name);
     if (name === "sync") await loadSyncStatus();
+    updateInstallPathDisplay();
   });
 });
 
@@ -366,8 +463,9 @@ document.getElementById("pull-input").addEventListener("input", (e) => {
 document.getElementById("btn-change-installation").addEventListener("click", async (e) => {
   e.preventDefault();
   pendingAction = null;
-  pendingInstallations = await invoke("scan_zen_installations_cmd");
-  showInstallSelector();
+  const scanResult = await invoke("scan_zen_installations_cmd");
+  pendingInstallations = scanResult.installations;
+  showInstallSelector(null, scanResult.diagnostics);
   document.getElementById("si-error").textContent = "";
 });
 
@@ -375,6 +473,18 @@ document.getElementById("btn-si-back").addEventListener("click", () => {
   pendingAction = null;
   pendingInstallations = null;
   hideInstallSelector();
+});
+
+document.getElementById("btn-si-refresh").addEventListener("click", async () => {
+  const diagEl = document.getElementById("si-diagnostics");
+  diagEl.classList.add("hidden");
+  document.getElementById("si-error").textContent = "";
+  const scanResult = await invoke("scan_zen_installations_cmd");
+  pendingInstallations = scanResult.installations;
+  showInstallSelector(pendingInstallations.length > 0
+    ? "Pick which Zen installation to use."
+    : "No Zen installation detected. Enter a custom path below.",
+    scanResult.diagnostics);
 });
 
 document.getElementById("btn-show-custom-path").addEventListener("click", (e) => {
@@ -465,10 +575,10 @@ async function loadSyncStatus() {
         document.getElementById('sync-last-synced').textContent = 'Not yet synced this session';
       }
       showSyncState('connected');
-      updateInstallPathDisplay();
     } else {
       showSyncState('disconnected');
     }
+    updateInstallPathDisplay();
   } catch (e) {
     document.getElementById('sync-connect-error').textContent = String(e);
     showSyncState('disconnected');
@@ -576,7 +686,13 @@ function renderSnapshotList(snapshots) {
           showSyncState('connected');
           await loadSyncStatus();
         } catch (e) {
-          document.getElementById('rollback-error').textContent = String(e);
+          const msg = String(e);
+          if (msg.includes("profile folder not found") || msg.includes("profile path no longer exists")) {
+            document.getElementById('rollback-error').textContent =
+              "No Zen installation selected. Use the 'Change' link below to select one, then try again.";
+          } else {
+            document.getElementById('rollback-error').textContent = msg;
+          }
           btn.disabled = false;
           btn.textContent = 'Restore';
         }
@@ -711,8 +827,28 @@ async function init() {
     "font-size:20px;font-weight:800;color:#f76f53;font-family:'Anybody',system-ui,sans-serif;font-stretch:88%",
     "\nSync your Zen Browser profile between machines.\nBuilt with Tauri · Rust · vanilla JS."
   );
-  showScreen("screen-main");
-  showTab("sync");
+
+  // If no profile is saved and multiple Zen installations exist,
+  // prompt the user to pick one right away
+  let choseScreen = false;
+  try {
+    const savedPath = await invoke("get_selected_installation_cmd");
+    if (!savedPath) {
+      const scanResult = await invoke("scan_zen_installations_cmd");
+      if (scanResult.installations.length > 1) {
+        pendingInstallations = scanResult.installations;
+        showInstallSelector("You have multiple Zen installations. Select which one Zync should use.", undefined, true);
+        choseScreen = true;
+      }
+    }
+  } catch (_) {
+    // Silently ignore — user will be prompted on first action
+  }
+
+  if (!choseScreen) {
+    showScreen("screen-main");
+    showTab("sync");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", init);

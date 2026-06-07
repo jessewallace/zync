@@ -39,6 +39,8 @@
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+.hidden:not(.msg-box) { display: none !important; }
+
 /* ── Base ─────────────────────────────────────────────────── */
 
 body {
@@ -1230,6 +1232,12 @@ input[type="text"]::placeholder {
   flex: 1;
 }
 
+.si-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 #screen-select-install .btn-back {
   margin-bottom: 4px;
 }
@@ -1349,10 +1357,41 @@ input[type="text"]::placeholder {
   padding: 0 12px;
 }
 
+.diagnostics-box {
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.diagnostics-box summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.diagnostics-box pre {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bg-secondary, #f5f5f5);
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 .install-path-display {
   font-size: 11px;
   color: var(--text-muted);
   margin: 4px 0;
+}
+
+#screen-main > .install-path-display {
+  padding: 12px 22px;
+  border-top: 1px solid var(--border-light);
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .install-path-display a {

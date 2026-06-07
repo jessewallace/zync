@@ -65,10 +65,6 @@
         </div>
         <p id="sync-last-synced" class="sync-status-text"></p>
         <p id="sync-main-error" class="error-msg"></p>
-        <p id="change-installation-link" class="install-path-display hidden">
-          Using: <span id="current-install-path"></span>
-          <a href="#" id="btn-change-installation">Change</a>
-        </p>
         <div class="sync-footer-actions">
           <button id="btn-restore-version" class="btn btn-secondary">Restore Version</button>
           <button id="btn-disconnect" class="btn-danger-link">Disconnect</button>
@@ -123,6 +119,10 @@
         <button id="btn-push" class="btn btn-primary pull-upload-btn">Upload ↑</button>
       </div>
     </div>
+    <p id="change-installation-link" class="install-path-display hidden">
+      Using: <span id="current-install-path"></span>
+      <a href="#" id="btn-change-installation">Change</a>
+    </p>
   </div>
 
   <!-- ── Push result screen ────────────────────────────────── -->
@@ -186,7 +186,10 @@
   <!-- ── Select installation screen ────────────────────── -->
   <div id="screen-select-install" class="screen">
     <div class="select-install-body">
-      <button id="btn-si-back" class="btn-back">← Back</button>
+      <div class="si-header">
+        <button id="btn-si-back" class="btn-back">← Back</button>
+        <button id="btn-si-refresh" class="btn-back">↻ Rescan</button>
+      </div>
       <p class="result-heading">Select Zen installation</p>
       <p id="si-sub" class="result-sub">Choose which Zen profile to sync</p>
       <p id="si-error" class="error-msg"></p>
@@ -199,6 +202,10 @@
           <p id="custom-path-error" class="error-msg"></p>
         </div>
       </div>
+      <details id="si-diagnostics" class="diagnostics-box hidden">
+        <summary>Scan diagnostics</summary>
+        <pre id="si-diagnostics-text"></pre>
+      </details>
     </div>
   </div>
 
