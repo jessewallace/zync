@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ZenInstallation {
@@ -8,6 +9,13 @@ pub struct ZenInstallation {
     pub install_type: String,
     pub base_path: String,
     pub last_used: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResult {
+    pub installations: Vec<ZenInstallation>,
+    pub diagnostics: Vec<String>,
 }
 
 pub enum ResolveError {
@@ -50,7 +58,7 @@ pub fn detect_profile_path() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn scan_zen_installations_cmd() -> Result<Vec<ZenInstallation>, String> {
+pub fn scan_zen_installations_cmd() -> Result<ScanResult, String> {
     Ok(scan_zen_installations())
 }
 
@@ -80,55 +88,76 @@ pub fn collect_sync_files() -> Result<Vec<String>, String> {
     Ok(files)
 }
 
-pub fn scan_zen_installations() -> Vec<ZenInstallation> {
+pub fn scan_zen_installations() -> ScanResult {
     let mut results = Vec::new();
+    let mut diags = Vec::new();
 
     #[cfg(target_os = "linux")]
     {
-        scan_one(&mut results, dirs::home_dir().map(|d| d.join(".zen")), "native");
-        scan_one(&mut results, dirs::data_local_dir().map(|d| d.join("zen")), "xdg");
-        scan_one(&mut results, dirs::home_dir().map(|d| d.join(".var/app/app.zen_browser.zen/.zen")), "flatpak");
-        scan_one(&mut results, dirs::home_dir().map(|d| d.join("snap/zen-browser/common/.zen")), "snap");
+        scan_one(&mut results, &mut diags, dirs::home_dir().map(|d| d.join(".zen")), "native");
+        scan_one(&mut results, &mut diags, dirs::config_dir().map(|d| d.join("zen")), "xdg-config");
+        scan_one(&mut results, &mut diags, dirs::data_local_dir().map(|d| d.join("zen")), "xdg");
+        scan_one(&mut results, &mut diags, dirs::home_dir().map(|d| d.join(".var/app/app.zen_browser.zen/.zen")), "flatpak");
+        scan_one(&mut results, &mut diags, dirs::home_dir().map(|d| d.join("snap/zen-browser/common/.zen")), "snap");
     }
 
     #[cfg(target_os = "macos")]
     {
-        scan_one(&mut results, dirs::data_dir().map(|d| d.join("zen")), "native");
+        scan_one(&mut results, &mut diags, dirs::data_dir().map(|d| d.join("zen")), "native");
     }
 
     #[cfg(target_os = "windows")]
     {
-        scan_one(&mut results, dirs::data_dir().map(|d| d.join("zen")), "native");
+        scan_one(&mut results, &mut diags, dirs::data_dir().map(|d| d.join("zen")), "native");
     }
 
     results.sort_by(|a, b| a.path.cmp(&b.path));
     results.dedup_by(|a, b| a.path == b.path);
 
-    results
+    ScanResult { installations: results, diagnostics: diags }
 }
 
-fn scan_one(results: &mut Vec<ZenInstallation>, base_dir: Option<PathBuf>, install_type: &'static str) {
+fn scan_one(results: &mut Vec<ZenInstallation>, diags: &mut Vec<String>, base_dir: Option<PathBuf>, install_type: &'static str) {
     let base_dir = match base_dir {
         Some(d) if d.exists() => d,
-        _ => return,
+        _ => {
+            let path = base_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default();
+            let msg = format!("scan_one({install_type}): base dir does not exist ({path})");
+            log_diag(diags, msg);
+            return;
+        }
     };
 
+    let base_str = base_dir.display();
+    log_diag(diags, format!("scan_one({install_type}): scanning {base_str}"));
+
     // Read profiles.ini from the base Zen directory — works on all platforms.
-    let profile = read_active_profile_from_ini(&base_dir)
-        .filter(|p| p.is_dir())
+    let ini_result = read_active_profile_from_ini(&base_dir)
+        .filter(|p| p.is_dir());
+    log_diag(diags, format!("scan_one({install_type}): profiles.ini → {}", ini_result.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "not found".into())));
+
+    let profile = ini_result
         // Fallback: look for release folders directly in base_dir (Linux)
-        .or_else(|| first_release_profile(&base_dir))
+        .or_else(|| {
+            let r = first_release_profile(&base_dir);
+            log_diag(diags, format!("scan_one({install_type}): first_release_profile({base_str}) → {}", r.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "not found".into())));
+            r
+        })
         // Fallback: look for release folders inside a Profiles/ subdir (macOS/Windows)
         .or_else(|| {
             let profiles_subdir = base_dir.join("Profiles");
             if profiles_subdir.is_dir() {
-                first_release_profile(&profiles_subdir)
+                let r = first_release_profile(&profiles_subdir);
+                log_diag(diags, format!("scan_one({install_type}): first_release_profile(Profiles/) → {}", r.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "not found".into())));
+                r
             } else {
+                log_diag(diags, format!("scan_one({install_type}): Profiles/ subdir not found"));
                 None
             }
         });
 
     if let Some(profile_path) = profile {
+        log_diag(diags, format!("scan_one({install_type}): found profile at {}", profile_path.display()));
         let last_used = profile_path.join("places.sqlite")
             .metadata()
             .ok()
@@ -142,6 +171,8 @@ fn scan_one(results: &mut Vec<ZenInstallation>, base_dir: Option<PathBuf>, insta
             base_path: base_dir.to_string_lossy().into_owned(),
             last_used,
         });
+    } else {
+        log_diag(diags, format!("scan_one({install_type}): no profile found"));
     }
 }
 
@@ -153,7 +184,8 @@ pub fn resolve_zen_profile(saved_path: Option<&Path>) -> Result<PathBuf, Resolve
         return Err(ResolveError::SavedPathInvalid(path.to_string_lossy().into_owned()));
     }
 
-    let installations = scan_zen_installations();
+    let scan_result = scan_zen_installations();
+    let installations = scan_result.installations;
     match installations.len() {
         0 => Err(ResolveError::NotFound),
         1 => Ok(PathBuf::from(&installations[0].path)),
@@ -234,4 +266,9 @@ fn first_release_profile(profiles_dir: &Path) -> Option<PathBuf> {
 
 fn is_excluded(name: &str) -> bool {
     EXCLUDE_PATTERNS.iter().any(|&pat| name == pat || name.starts_with(pat))
+}
+
+fn log_diag(diags: &mut Vec<String>, msg: String) {
+    eprintln!("[zync] {msg}");
+    diags.push(msg);
 }

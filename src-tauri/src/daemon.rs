@@ -80,19 +80,20 @@ pub async fn manual_sync_now_cmd(
     if zen_check::is_zen_running() {
         return Err("Zen is running — close it before syncing".into());
     }
-    let (client, machine_name, last_known, config_dir, saved_path) = {
+    let (client, machine_name, last_known, config_dir, saved_path, mut local_state) = {
         let s = state.lock().unwrap();
         let c = s.github_client.clone()
             .ok_or("Not connected to GitHub — set up sync in the Sync tab first")?;
-        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version, s.config_dir.clone(), s.local_state.selected_profile_path.clone())
+        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version, s.config_dir.clone(), s.local_state.selected_profile_path.clone(), s.local_state.clone())
     };
 
     let saved = saved_path.as_deref().map(std::path::Path::new);
-    match sync::github_push(&client, &machine_name, last_known, saved).await {
+    match sync::github_push(&client, &machine_name, last_known, saved, &mut local_state, &config_dir).await {
         Ok(Some((new_version, _))) => {
             let topic = pairing::derive_ntfy_topic(&client.user_id.to_string());
             let _ = ntfy::publish_version(&topic, new_version).await;
             let mut s = state.lock().unwrap();
+            s.local_state = local_state;
             s.local_state.last_known_version = new_version;
             s.last_synced = Some(unix_now());
             s.last_synced_from = None;
@@ -132,7 +133,7 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
 // ── Tick helpers ──────────────────────────────────────────────────────────────
 
 async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let (client, was_running, zen_now_running, config_dir, saved_path) = {
+    let (client, was_running, zen_now_running, config_dir, saved_path, mut local_state) = {
         let mut s = state.lock().unwrap();
         let client = match s.github_client.clone() {
             Some(c) => c,
@@ -141,7 +142,7 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
         let was = s.zen_was_running;
         let now_running = zen_check::is_zen_running();
         s.zen_was_running = now_running;
-        (client, was, now_running, s.config_dir.clone(), s.local_state.selected_profile_path.clone())
+        (client, was, now_running, s.config_dir.clone(), s.local_state.selected_profile_path.clone(), s.local_state.clone())
     };
 
     if !was_running || zen_now_running {
@@ -152,7 +153,7 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
     let pending = state.lock().unwrap().pending_version.take();
 
     if let Some(pending_ver) = pending {
-        handle_pull(&client, pending_ver, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new)).await;
+        handle_pull(&client, pending_ver, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new), &mut local_state).await;
         return;
     }
 
@@ -176,19 +177,20 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
 
     if github_version > last_known {
         is_syncing.store(false, Ordering::SeqCst);
-        handle_pull(&client, github_version, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new)).await;
+        handle_pull(&client, github_version, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new), &mut local_state).await;
         return;
     }
 
     // Up to date — push
-    let machine_name = state.lock().unwrap().local_state.machine_name.clone();
-    match sync::github_push(&client, &machine_name, last_known, saved_path.as_deref().map(std::path::Path::new)).await {
+    let machine_name = local_state.machine_name.clone();
+    match sync::github_push(&client, &machine_name, last_known, saved_path.as_deref().map(std::path::Path::new), &mut local_state, &config_dir).await {
         Ok(Some((new_version, _metadata))) => {
             let now = unix_now();
             let topic = pairing::derive_ntfy_topic(&client.user_id.to_string());
             let _ = ntfy::publish_version(&topic, new_version).await;
             {
                 let mut s = state.lock().unwrap();
+                s.local_state = local_state.clone();
                 s.last_synced = Some(now);
                 s.last_synced_from = None;
                 s.local_state.last_known_version = new_version;
@@ -202,7 +204,7 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                 Ok(Some(m)) => m.metadata.version,
                 _ => last_known + 1,
             };
-            handle_pull(&client, current_ver, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new)).await;
+            handle_pull(&client, current_ver, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new), &mut local_state).await;
         }
         Err(e) => notify_sync_error(app, "Auto-push", &e),
     }
@@ -217,6 +219,7 @@ async fn handle_pull(
     state: &Arc<Mutex<DaemonState>>,
     config_dir: &std::path::Path,
     saved_profile: Option<&std::path::Path>,
+    local_state: &mut crate::local_state::LocalState,
 ) {
     let (slot, pusher) = match client.read_metadata().await {
         Ok(Some(m)) if m.metadata.version == version => {
@@ -232,11 +235,12 @@ async fn handle_pull(
         }
     };
 
-    match sync::github_pull(client, slot, saved_profile).await {
+    match sync::github_pull(client, slot, saved_profile, local_state, config_dir).await {
         Ok(_) => {
             let now = unix_now();
             {
                 let mut s = state.lock().unwrap();
+                s.local_state = local_state.clone();
                 s.last_synced = Some(now);
                 s.last_synced_from = Some(pusher.clone());
                 s.local_state.last_known_version = version;
@@ -253,12 +257,12 @@ async fn handle_pull(
 }
 
 async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let (client, since, config_dir, saved_path) = {
+    let (client, since, config_dir, saved_path, mut local_state) = {
         let s = state.lock().unwrap();
         let client = match s.github_client.clone() { Some(c) => c, None => return };
         let since = s.last_ntfy_id.clone()
             .unwrap_or_else(|| s.last_poll_time.to_string());
-        (client, since, s.config_dir.clone(), s.local_state.selected_profile_path.clone())
+        (client, since, s.config_dir.clone(), s.local_state.selected_profile_path.clone(), s.local_state.clone())
     };
 
     let poll_start = unix_now();
@@ -299,7 +303,7 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         state.lock().unwrap().pending_version = Some(version);
         show_notification(app, "New profile available — will sync when Zen closes");
     } else {
-        handle_pull(&client, version, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new)).await;
+        handle_pull(&client, version, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new), &mut local_state).await;
     }
 }
 

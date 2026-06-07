@@ -24,8 +24,9 @@ fn resolve_profile_or_err(saved: Option<&Path>) -> Result<PathBuf, String> {
         Err(profile::ResolveError::NotFound) => {
             Err("Zen profile folder not found. Is Zen Browser installed?".into())
         }
-        Err(profile::ResolveError::MultipleInstallations(_)) => {
-            Err("MULTIPLE_INSTALLATIONS:Multiple Zen installations found. Select one first.".into())
+        Err(profile::ResolveError::MultipleInstallations(list)) => {
+            let json = serde_json::to_string(&list).unwrap_or_default();
+            Err(format!("MULTIPLE_INSTALLATIONS:{json}"))
         }
         Err(profile::ResolveError::SavedPathInvalid(p)) => {
             Err(format!("Saved profile path no longer exists: {p}. Open Zync to select a Zen installation."))
@@ -155,6 +156,15 @@ pub async fn push_profile(
     let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
     let profile_dir = resolve_profile_or_err(saved)?;
 
+    // Persist auto-detected path so future calls skip the scan step
+    if saved_path.is_none() {
+        let mut s = state.lock().unwrap();
+        if s.local_state.selected_profile_path.is_none() {
+            s.local_state.selected_profile_path = Some(profile_dir.to_string_lossy().into_owned());
+            let _ = s.local_state.save(&s.config_dir);
+        }
+    }
+
     let places_path = profile_dir.join("places.sqlite");
     if places_path.exists() {
         checkpoint_wal(&places_path)?;
@@ -225,6 +235,16 @@ pub async fn pull_profile(
     let saved_path = state.lock().unwrap().local_state.selected_profile_path.clone();
     let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
     let profile_dir = resolve_profile_or_err(saved)?;
+
+    // Persist auto-detected path so future calls skip the scan step
+    if saved_path.is_none() {
+        let mut s = state.lock().unwrap();
+        if s.local_state.selected_profile_path.is_none() {
+            s.local_state.selected_profile_path = Some(profile_dir.to_string_lossy().into_owned());
+            let _ = s.local_state.save(&s.config_dir);
+        }
+    }
+
     eprintln!("[zync] pull: writing to {}", profile_dir.display());
 
     let written = write_bundle_files(&profile_dir, &bundle)?;
@@ -234,13 +254,38 @@ pub async fn pull_profile(
 
 /// Push the current Zen profile to GitHub. Returns (new_version, new_metadata).
 /// Returns Ok(None) if version conflict (another machine pushed — caller should pull).
+///
+/// If `saved_profile` is None and push succeeds, auto-detects the profile and
+/// updates `local_state.selected_profile_path` so future calls skip the scan.
 pub async fn github_push(
     client: &GitHubClient,
     machine_name: &str,
     last_known_version: u32,
     saved_profile: Option<&Path>,
+    local_state: &mut crate::local_state::LocalState,
+    config_dir: &Path,
 ) -> Result<Option<(u32, SyncMetadata)>, String> {
-    let profile_dir = resolve_profile_or_err(saved_profile)?;
+    let auto_detected = saved_profile.is_none() && local_state.selected_profile_path.is_none();
+
+    let profile_dir = if let Some(p) = saved_profile {
+        if !p.exists() {
+            return Err(format!("Saved profile path no longer exists: {}. Open Zync to select a Zen installation.", p.display()));
+        }
+        p.to_path_buf()
+    } else if let Some(ref path) = local_state.selected_profile_path {
+        PathBuf::from(path)
+    } else {
+        let scan = profile::scan_zen_installations();
+        match scan.installations.len() {
+            1 => {
+                let path = scan.installations[0].path.clone();
+                local_state.selected_profile_path = Some(path.clone());
+                PathBuf::from(path)
+            }
+            0 => return Err("No Zen installation found. Install Zen Browser first.".into()),
+            _ => return Err("Multiple Zen installations found. Select one in Zync.".into()),
+        }
+    };
 
     let places_path = profile_dir.join("places.sqlite");
     if places_path.exists() {
@@ -305,12 +350,47 @@ pub async fn github_push(
         return Ok(None);
     }
 
+    if auto_detected {
+        let _ = local_state.save(config_dir);
+    }
+
     Ok(Some((new_metadata.version, new_metadata)))
 }
 
 /// Download and apply a profile from GitHub slot. Returns written file names.
 /// Caller must verify Zen is not running before calling.
-pub async fn github_pull(client: &GitHubClient, slot: u8, saved_profile: Option<&Path>) -> Result<Vec<String>, String> {
+///
+/// If `saved_profile` is None and pull succeeds, auto-detects the profile and
+/// updates `local_state.selected_profile_path` so future calls skip the scan.
+pub async fn github_pull(
+    client: &GitHubClient,
+    slot: u8,
+    saved_profile: Option<&Path>,
+    local_state: &mut crate::local_state::LocalState,
+    config_dir: &Path,
+) -> Result<Vec<String>, String> {
+    let auto_detected = saved_profile.is_none() && local_state.selected_profile_path.is_none();
+
+    let profile_dir = if let Some(p) = saved_profile {
+        if !p.exists() {
+            return Err(format!("Saved profile path no longer exists: {}. Open Zync to select a Zen installation.", p.display()));
+        }
+        p.to_path_buf()
+    } else if let Some(ref path) = local_state.selected_profile_path {
+        PathBuf::from(path)
+    } else {
+        let scan = profile::scan_zen_installations();
+        match scan.installations.len() {
+            1 => {
+                let path = scan.installations[0].path.clone();
+                local_state.selected_profile_path = Some(path.clone());
+                PathBuf::from(path)
+            }
+            0 => return Err("No Zen installation found. Install Zen Browser first.".into()),
+            _ => return Err("Multiple Zen installations found. Select one in Zync.".into()),
+        }
+    };
+
     let encrypted = client.download_profile(slot).await?;
     let json = crate::crypto::decrypt(&encrypted, &hex_key(&client.encryption_key))?;
 
@@ -324,9 +404,13 @@ pub async fn github_pull(client: &GitHubClient, slot: u8, saved_profile: Option<
         ));
     }
 
-    let profile_dir = resolve_profile_or_err(saved_profile)?;
+    let result = write_bundle_files(&profile_dir, &bundle)?;
 
-    write_bundle_files(&profile_dir, &bundle)
+    if auto_detected {
+        let _ = local_state.save(config_dir);
+    }
+
+    Ok(result)
 }
 
 fn hex_key(key: &[u8; 32]) -> String {

@@ -106,6 +106,18 @@ pub fn run() {
                 s.local_state = crate::local_state::LocalState::load(&config_dir);
             }
 
+            // Auto-detect Zen profile on first run if exactly one installation exists
+            {
+                let mut s = state_for_cache.lock().unwrap();
+                if s.local_state.selected_profile_path.is_none() {
+                    let scan = crate::profile::scan_zen_installations();
+                    if scan.installations.len() == 1 {
+                        s.local_state.selected_profile_path = Some(scan.installations[0].path.clone());
+                        let _ = s.local_state.save(&s.config_dir);
+                    }
+                }
+            }
+
             // Restore GitHub client from keychain in the background
             {
                 let state_clone = state_for_cache.clone();
@@ -383,22 +395,23 @@ async fn restore_snapshot_cmd(
     if zen_check::is_zen_running() {
         return Err("Close Zen before restoring a snapshot.".into());
     }
-    let (client, machine_name, last_known, config_dir, saved_path) = {
+    let (client, machine_name, last_known, config_dir, saved_path, mut local_state) = {
         let s = state.lock().unwrap();
         let c = s.github_client.clone().ok_or("Not connected to GitHub")?;
         (c, s.local_state.machine_name.clone(), s.local_state.last_known_version,
-         s.config_dir.clone(), s.local_state.selected_profile_path.clone())
+         s.config_dir.clone(), s.local_state.selected_profile_path.clone(), s.local_state.clone())
     };
 
     let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
-    sync::github_pull(&client, slot, saved).await?;
+    sync::github_pull(&client, slot, saved, &mut local_state, &config_dir).await?;
 
-    match sync::github_push(&client, &machine_name, last_known, saved).await {
+    match sync::github_push(&client, &machine_name, last_known, saved, &mut local_state, &config_dir).await {
         Ok(Some((new_version, _))) => {
             let topic = pairing::derive_ntfy_topic(&client.user_id.to_string());
             let _ = ntfy::publish_version(&topic, new_version).await;
             {
                 let mut s = state.lock().unwrap();
+                s.local_state = local_state;
                 s.local_state.last_known_version = new_version;
                 s.last_synced = Some(
                     std::time::SystemTime::now()
