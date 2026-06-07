@@ -7,6 +7,7 @@ const STATE_FILE: &str = "state.json";
 pub struct LocalState {
     pub last_known_version: u32,
     pub machine_name: String,
+    pub selected_profile_path: Option<String>,
 }
 
 impl Default for LocalState {
@@ -14,6 +15,7 @@ impl Default for LocalState {
         Self {
             last_known_version: 0,
             machine_name: default_machine_name(),
+            selected_profile_path: None,
         }
     }
 }
@@ -55,6 +57,7 @@ mod tests {
         let state = LocalState::load(dir.path());
         assert_eq!(state.last_known_version, 0);
         assert!(!state.machine_name.is_empty());
+        assert_eq!(state.selected_profile_path, None);
     }
 
     #[test]
@@ -63,6 +66,7 @@ mod tests {
         let original = LocalState {
             last_known_version: 42,
             machine_name: "Test Machine".to_string(),
+            selected_profile_path: Some("/home/user/.zen/Profiles/test.release".to_string()),
         };
         original.save(dir.path()).unwrap();
         let loaded = LocalState::load(dir.path());
