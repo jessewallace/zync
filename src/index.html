@@ -65,6 +65,10 @@
         </div>
         <p id="sync-last-synced" class="sync-status-text"></p>
         <p id="sync-main-error" class="error-msg"></p>
+        <p id="change-installation-link" class="install-path-display hidden">
+          Using: <span id="current-install-path"></span>
+          <a href="#" id="btn-change-installation">Change</a>
+        </p>
         <div class="sync-footer-actions">
           <button id="btn-restore-version" class="btn btn-secondary">Restore Version</button>
           <button id="btn-disconnect" class="btn-danger-link">Disconnect</button>
@@ -176,6 +180,25 @@
     <div class="result-footer">
       <button id="btn-primer-back" class="btn btn-ghost">Go back</button>
       <button id="btn-primer-continue" class="btn btn-primary">Yes, continue</button>
+    </div>
+  </div>
+
+  <!-- ── Select installation screen ────────────────────── -->
+  <div id="screen-select-install" class="screen">
+    <div class="select-install-body">
+      <button id="btn-si-back" class="btn-back">← Back</button>
+      <p class="result-heading">Select Zen installation</p>
+      <p id="si-sub" class="result-sub">Choose which Zen profile to sync</p>
+      <p id="si-error" class="error-msg"></p>
+      <div id="install-list"></div>
+      <div class="install-custom">
+        <a href="#" id="btn-show-custom-path" class="install-custom-link">Enter custom path&#8230;</a>
+        <div id="custom-path-form" class="install-custom-form hidden">
+          <input id="input-custom-path" type="text" class="text-input" placeholder="/path/to/zen/profile" spellcheck="false" />
+          <button id="btn-validate-custom" class="btn btn-secondary" disabled>Validate</button>
+          <p id="custom-path-error" class="error-msg"></p>
+        </div>
+      </div>
     </div>
   </div>
 

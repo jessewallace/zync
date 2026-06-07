@@ -9,6 +9,7 @@ mod sync;
 mod transport;
 mod zen_check;
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -132,8 +133,13 @@ pub fn run() {
             zen_check::is_zen_running,
             profile::detect_profile_path,
             profile::collect_sync_files,
+            profile::scan_zen_installations_cmd,
+            profile::validate_custom_path_cmd,
             sync::push_profile,
             sync::pull_profile,
+            ensure_profile_ready_cmd,
+            set_selected_installation_cmd,
+            get_selected_installation_cmd,
             daemon::get_sync_status_cmd,
             daemon::manual_sync_now_cmd,
             connect_github_cmd,
@@ -267,6 +273,13 @@ fn rebuild_tray_with_update(app: &tauri::AppHandle, version: &str) {
     }
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "type", content = "value")]
+pub enum EnsureProfileResult {
+    Ready(String),
+    MultipleInstallations(Vec<profile::ZenInstallation>),
+}
+
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotInfo {
@@ -276,6 +289,47 @@ pub struct SnapshotInfo {
     pub machine_name: String,
     pub size_mb: f32,
     pub is_current: bool,
+}
+
+#[tauri::command]
+fn ensure_profile_ready_cmd(
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Result<EnsureProfileResult, String> {
+    let saved_path = state.lock().unwrap()
+        .local_state.selected_profile_path.clone();
+    let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
+    match profile::resolve_zen_profile(saved) {
+        Ok(p) => Ok(EnsureProfileResult::Ready(p.to_string_lossy().into_owned())),
+        Err(profile::ResolveError::NotFound) => {
+            Err("Zen profile folder not found. Is Zen Browser installed?".into())
+        }
+        Err(profile::ResolveError::MultipleInstallations(list)) => {
+            Ok(EnsureProfileResult::MultipleInstallations(list))
+        }
+        Err(profile::ResolveError::SavedPathInvalid(p)) => {
+            Err(format!("Saved profile path no longer exists: {p}. Open Zync to select a Zen installation."))
+        }
+    }
+}
+
+#[tauri::command]
+fn set_selected_installation_cmd(
+    path: String,
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Result<(), String> {
+    if profile::validate_custom_path(&path).is_none() {
+        return Err("Invalid Zen profile directory — no profile files found at this path.".into());
+    }
+    let mut s = state.lock().unwrap();
+    s.local_state.selected_profile_path = Some(path);
+    s.local_state.save(&s.config_dir)
+}
+
+#[tauri::command]
+fn get_selected_installation_cmd(
+    state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
+) -> Result<Option<String>, String> {
+    Ok(state.lock().unwrap().local_state.selected_profile_path.clone())
 }
 
 #[tauri::command]
@@ -329,15 +383,17 @@ async fn restore_snapshot_cmd(
     if zen_check::is_zen_running() {
         return Err("Close Zen before restoring a snapshot.".into());
     }
-    let (client, machine_name, last_known, config_dir) = {
+    let (client, machine_name, last_known, config_dir, saved_path) = {
         let s = state.lock().unwrap();
         let c = s.github_client.clone().ok_or("Not connected to GitHub")?;
-        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version, s.config_dir.clone())
+        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version,
+         s.config_dir.clone(), s.local_state.selected_profile_path.clone())
     };
 
-    sync::github_pull(&client, slot).await?;
+    let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
+    sync::github_pull(&client, slot, saved).await?;
 
-    match sync::github_push(&client, &machine_name, last_known).await {
+    match sync::github_push(&client, &machine_name, last_known, saved).await {
         Ok(Some((new_version, _))) => {
             let topic = pairing::derive_ntfy_topic(&client.user_id.to_string());
             let _ = ntfy::publish_version(&topic, new_version).await;

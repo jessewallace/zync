@@ -1,5 +1,21 @@
 const { invoke } = window.__TAURI__.core;
 
+// ── Relative time helper ──────────────────────────────
+
+function relativeTime(unixSecs) {
+  if (unixSecs == null) return "Never";
+  const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
+  const units = [
+    [31536000, "year"], [2592000, "month"], [604800, "week"],
+    [86400, "day"], [3600, "hour"], [60, "minute"],
+  ];
+  for (const [secs, label] of units) {
+    const n = Math.floor(diff / secs);
+    if (n >= 1) return `${n} ${label}${n > 1 ? "s" : ""} ago`;
+  }
+  return "Just now";
+}
+
 // ── Screen helpers ────────────────────────────────────────────
 
 function showScreen(id) {
@@ -36,6 +52,9 @@ function setLoading(loading) {
   document.getElementById("pull-input").disabled = loading;
   document.getElementById("status-main").classList.toggle("is-loading", loading);
 }
+
+let pendingInstallations = null;
+let pendingAction = null; // "push" or "pull" — auto-resume after selecting
 
 // ── Countdown timer ───────────────────────────────────────────
 
@@ -95,23 +114,97 @@ function copyText(text) {
   });
 }
 
+// ── Installation selector ─────────────────────────────
+
+function renderInstallationRow(inst) {
+  const row = document.createElement("div");
+  row.className = "install-row";
+
+  const info = document.createElement("div");
+  info.className = "install-info";
+
+  const badge = document.createElement("span");
+  badge.className = "install-badge";
+  const typeLabels = { native: "Native", xdg: "XDG", flatpak: "Flatpak", snap: "Snap", custom: "Custom" };
+  badge.textContent = typeLabels[inst.installType] || inst.installType;
+
+  const pathEl = document.createElement("div");
+  pathEl.className = "install-path";
+  pathEl.textContent = inst.path;
+  pathEl.title = inst.path;
+
+  const used = document.createElement("div");
+  used.className = "install-used";
+  used.textContent = `Last used ${relativeTime(inst.lastUsed)}`;
+
+  info.appendChild(badge);
+  info.appendChild(pathEl);
+  info.appendChild(used);
+
+  const btn = document.createElement("button");
+  btn.className = "btn btn-secondary btn-use-install";
+  btn.textContent = "Use this";
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Saving\u2026";
+    try {
+      await invoke("set_selected_installation_cmd", { path: inst.path });
+      pendingInstallations = null;
+      const action = pendingAction;
+      pendingAction = null;
+      hideInstallSelector();
+      setStatus("");
+      if (action === "push") await handlePush();
+      else if (action === "pull") await handlePull();
+    } catch (e) {
+      document.getElementById("si-error").textContent = String(e);
+      btn.disabled = false;
+      btn.textContent = "Use this";
+    }
+  });
+
+  row.appendChild(info);
+  row.appendChild(btn);
+  return row;
+}
+
+function showInstallSelector(msg) {
+  showScreen("screen-select-install");
+  document.getElementById("btn-push").disabled = true;
+  document.getElementById("btn-pull").disabled = true;
+
+  const sub = document.getElementById("si-sub");
+  sub.textContent = msg ?? "Choose which Zen profile to sync.";
+
+  const list = document.getElementById("install-list");
+  list.innerHTML = "";
+  if (pendingInstallations) {
+    pendingInstallations.forEach((inst) => list.appendChild(renderInstallationRow(inst)));
+  }
+}
+
+function hideInstallSelector() {
+  pendingAction = null;
+  pendingInstallations = null;
+  showScreen("screen-main");
+  document.getElementById("btn-push").disabled = false;
+  document.getElementById("btn-pull").disabled = false;
+}
+
 // ── Push flow ─────────────────────────────────────────────────
 
 async function handlePush() {
   setLoading(true);
-  setStatus("Making sure Zen is closed…");
+  setStatus("Making sure Zen is closed\u2026");
 
   try {
     const zenOpen = await invoke("is_zen_running");
     if (zenOpen) {
-      setStatus("Zen Browser is still running. Quit it (⌘Q) first, then try again.", "error");
+      setStatus("Zen Browser is still running. Quit it (\u2318Q) first, then try again.", "error");
       return;
     }
 
-    setStatus("Finding your profile…");
-    await invoke("detect_profile_path");
-
-    setStatus("Encrypting and uploading…");
+    setStatus("Encrypting and uploading\u2026");
     const syncCode = await invoke("push_profile");
 
     stopCountdown();
@@ -126,7 +219,15 @@ async function handlePush() {
     startCountdown(3600); // 1 hour
 
   } catch (err) {
-    setStatus(String(err), "error");
+    const msg = String(err);
+    if (msg.startsWith("MULTIPLE_INSTALLATIONS:")) {
+      pendingInstallations = JSON.parse(msg.slice("MULTIPLE_INSTALLATIONS:".length));
+      pendingAction = "push";
+      showInstallSelector("You have multiple Zen installations. Pick which one to upload from.");
+      setStatus("Multiple Zen installations found. Select one.", "neutral");
+    } else {
+      setStatus(msg, "error");
+    }
   } finally {
     setLoading(false);
   }
@@ -153,16 +254,16 @@ async function handlePull() {
   }
 
   setLoading(true);
-  setStatus("Making sure Zen is closed…");
+  setStatus("Making sure Zen is closed\u2026");
 
   try {
     const zenOpen = await invoke("is_zen_running");
     if (zenOpen) {
-      setStatus("Zen Browser is still running. Quit it (⌘Q) first, then try again.", "error");
+      setStatus("Zen Browser is still running. Quit it (\u2318Q) first, then try again.", "error");
       return;
     }
 
-    setStatus("Downloading and decrypting…");
+    setStatus("Downloading and decrypting\u2026");
     const files = await invoke("pull_profile", { syncCode: rawCode });
 
     input.classList.remove("is-error");
@@ -171,8 +272,16 @@ async function handlePull() {
     showScreen("screen-pull");
 
   } catch (err) {
-    setStatus(String(err), "error");
-    input.classList.add("is-error");
+    const msg = String(err);
+    if (msg.startsWith("MULTIPLE_INSTALLATIONS:")) {
+      pendingInstallations = JSON.parse(msg.slice("MULTIPLE_INSTALLATIONS:".length));
+      pendingAction = "pull";
+      showInstallSelector("You have multiple Zen installations. Pick which one to download to.");
+      setStatus("Multiple Zen installations found. Select one.", "neutral");
+    } else {
+      setStatus(msg, "error");
+      input.classList.add("is-error");
+    }
   } finally {
     setLoading(false);
   }
@@ -252,6 +361,77 @@ document.getElementById("pull-input").addEventListener("input", (e) => {
   }
 });
 
+// ── Installation selector events ───────────────────────────────
+
+document.getElementById("btn-change-installation").addEventListener("click", async (e) => {
+  e.preventDefault();
+  pendingAction = null;
+  pendingInstallations = await invoke("scan_zen_installations_cmd");
+  showInstallSelector();
+  document.getElementById("si-error").textContent = "";
+});
+
+document.getElementById("btn-si-back").addEventListener("click", () => {
+  pendingAction = null;
+  pendingInstallations = null;
+  hideInstallSelector();
+});
+
+document.getElementById("btn-show-custom-path").addEventListener("click", (e) => {
+  e.preventDefault();
+  document.getElementById("custom-path-form").classList.remove("hidden");
+  document.getElementById("btn-show-custom-path").style.display = "none";
+});
+
+document.getElementById("input-custom-path").addEventListener("input", () => {
+  const val = document.getElementById("input-custom-path").value.trim();
+  document.getElementById("btn-validate-custom").disabled = !val;
+});
+
+document.getElementById("btn-validate-custom").addEventListener("click", async () => {
+  const path = document.getElementById("input-custom-path").value.trim();
+  if (!path) return;
+  const btn = document.getElementById("btn-validate-custom");
+  const errEl = document.getElementById("custom-path-error");
+  btn.disabled = true;
+  btn.textContent = "Validating\u2026";
+  errEl.textContent = "";
+  try {
+    const result = await invoke("validate_custom_path_cmd", { path });
+    if (result) {
+      pendingInstallations = [result];
+      const list = document.getElementById("install-list");
+      list.innerHTML = "";
+      list.appendChild(renderInstallationRow(result));
+      document.getElementById("custom-path-form").classList.add("hidden");
+    } else {
+      errEl.textContent = "No Zen profile found at this path.";
+    }
+  } catch (e) {
+    errEl.textContent = String(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Validate";
+  }
+});
+
+async function updateInstallPathDisplay() {
+  const el = document.getElementById("change-installation-link");
+  const pathEl = document.getElementById("current-install-path");
+  try {
+    const path = await invoke("get_selected_installation_cmd");
+    if (path) {
+      pathEl.textContent = path.length > 50 ? "\u2026" + path.slice(-47) : path;
+      pathEl.title = path;
+      el.classList.remove("hidden");
+    } else {
+      el.classList.add("hidden");
+    }
+  } catch (_) {
+    el.classList.add("hidden");
+  }
+}
+
 // ── Sync tab ──────────────────────────────────────────────────────────────────
 
 const syncDisconnected = document.getElementById('sync-disconnected');
@@ -285,6 +465,7 @@ async function loadSyncStatus() {
         document.getElementById('sync-last-synced').textContent = 'Not yet synced this session';
       }
       showSyncState('connected');
+      updateInstallPathDisplay();
     } else {
       showSyncState('disconnected');
     }
