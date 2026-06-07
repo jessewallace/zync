@@ -80,14 +80,15 @@ pub async fn manual_sync_now_cmd(
     if zen_check::is_zen_running() {
         return Err("Zen is running — close it before syncing".into());
     }
-    let (client, machine_name, last_known, config_dir) = {
+    let (client, machine_name, last_known, config_dir, saved_path) = {
         let s = state.lock().unwrap();
         let c = s.github_client.clone()
             .ok_or("Not connected to GitHub — set up sync in the Sync tab first")?;
-        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version, s.config_dir.clone())
+        (c, s.local_state.machine_name.clone(), s.local_state.last_known_version, s.config_dir.clone(), s.local_state.selected_profile_path.clone())
     };
 
-    match sync::github_push(&client, &machine_name, last_known).await {
+    let saved = saved_path.as_deref().map(std::path::Path::new);
+    match sync::github_push(&client, &machine_name, last_known, saved).await {
         Ok(Some((new_version, _))) => {
             let topic = pairing::derive_ntfy_topic(&client.user_id.to_string());
             let _ = ntfy::publish_version(&topic, new_version).await;
@@ -131,7 +132,7 @@ pub fn start(app: tauri::AppHandle, state: Arc<Mutex<DaemonState>>) {
 // ── Tick helpers ──────────────────────────────────────────────────────────────
 
 async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let (client, was_running, zen_now_running, config_dir) = {
+    let (client, was_running, zen_now_running, config_dir, saved_path) = {
         let mut s = state.lock().unwrap();
         let client = match s.github_client.clone() {
             Some(c) => c,
@@ -140,7 +141,7 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
         let was = s.zen_was_running;
         let now_running = zen_check::is_zen_running();
         s.zen_was_running = now_running;
-        (client, was, now_running, s.config_dir.clone())
+        (client, was, now_running, s.config_dir.clone(), s.local_state.selected_profile_path.clone())
     };
 
     if !was_running || zen_now_running {
@@ -151,7 +152,7 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
     let pending = state.lock().unwrap().pending_version.take();
 
     if let Some(pending_ver) = pending {
-        handle_pull(&client, pending_ver, app, state, &config_dir).await;
+        handle_pull(&client, pending_ver, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new)).await;
         return;
     }
 
@@ -175,13 +176,13 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
 
     if github_version > last_known {
         is_syncing.store(false, Ordering::SeqCst);
-        handle_pull(&client, github_version, app, state, &config_dir).await;
+        handle_pull(&client, github_version, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new)).await;
         return;
     }
 
     // Up to date — push
     let machine_name = state.lock().unwrap().local_state.machine_name.clone();
-    match sync::github_push(&client, &machine_name, last_known).await {
+    match sync::github_push(&client, &machine_name, last_known, saved_path.as_deref().map(std::path::Path::new)).await {
         Ok(Some((new_version, _metadata))) => {
             let now = unix_now();
             let topic = pairing::derive_ntfy_topic(&client.user_id.to_string());
@@ -201,9 +202,9 @@ async fn zen_watcher_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>
                 Ok(Some(m)) => m.metadata.version,
                 _ => last_known + 1,
             };
-            handle_pull(&client, current_ver, app, state, &config_dir).await;
+            handle_pull(&client, current_ver, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new)).await;
         }
-        Err(e) => show_notification(app, &format!("Auto-push failed: {e}")),
+        Err(e) => notify_sync_error(app, "Auto-push", &e),
     }
 
     is_syncing.store(false, Ordering::SeqCst);
@@ -215,6 +216,7 @@ async fn handle_pull(
     app: &tauri::AppHandle,
     state: &Arc<Mutex<DaemonState>>,
     config_dir: &std::path::Path,
+    saved_profile: Option<&std::path::Path>,
 ) {
     let (slot, pusher) = match client.read_metadata().await {
         Ok(Some(m)) if m.metadata.version == version => {
@@ -230,7 +232,7 @@ async fn handle_pull(
         }
     };
 
-    match sync::github_pull(client, slot).await {
+    match sync::github_pull(client, slot, saved_profile).await {
         Ok(_) => {
             let now = unix_now();
             {
@@ -246,17 +248,17 @@ async fn handle_pull(
                 &format!("{pusher} pushed a profile while Zen was open. Their profile has been applied. Your session's changes are saved as a snapshot."),
             );
         }
-        Err(e) => show_notification(app, &format!("Auto-pull failed: {e}")),
+        Err(e) => notify_sync_error(app, "Auto-pull", &e),
     }
 }
 
 async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>) {
-    let (client, since, config_dir) = {
+    let (client, since, config_dir, saved_path) = {
         let s = state.lock().unwrap();
         let client = match s.github_client.clone() { Some(c) => c, None => return };
         let since = s.last_ntfy_id.clone()
             .unwrap_or_else(|| s.last_poll_time.to_string());
-        (client, since, s.config_dir.clone())
+        (client, since, s.config_dir.clone(), s.local_state.selected_profile_path.clone())
     };
 
     let poll_start = unix_now();
@@ -297,11 +299,24 @@ async fn ntfy_poll_tick(app: &tauri::AppHandle, state: &Arc<Mutex<DaemonState>>)
         state.lock().unwrap().pending_version = Some(version);
         show_notification(app, "New profile available — will sync when Zen closes");
     } else {
-        handle_pull(&client, version, app, state, &config_dir).await;
+        handle_pull(&client, version, app, state, &config_dir, saved_path.as_deref().map(std::path::Path::new)).await;
     }
 }
 
 // ── Helper functions ──────────────────────────────────────────────────────────
+
+/// Shows an OS notification. For profile-resolution errors, uses friendlier wording
+/// that tells the user to open Zync and select an installation.
+fn notify_sync_error(app: &tauri::AppHandle, prefix: &str, details: &str) {
+    let msg = if details.starts_with("MULTIPLE_INSTALLATIONS:") {
+        format!("{prefix}: multiple Zen installations found — open Zync to select one.")
+    } else if details.contains("no longer exists") {
+        format!("{prefix}: saved Zen profile not found — open Zync to select an installation.")
+    } else {
+        format!("{prefix}: {details}")
+    };
+    show_notification(app, &msg);
+}
 
 fn get_status_payload(state: &Arc<Mutex<DaemonState>>) -> serde_json::Value {
     let s = state.lock().unwrap();

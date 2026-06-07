@@ -2,7 +2,8 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use crate::{crypto, profile, transport};
 use crate::github::{GitHubClient, SyncMetadata, SlotEntry};
@@ -15,6 +16,21 @@ struct SyncBundle {
     created_at: u64,
     /// filename → base64-encoded bytes
     files: HashMap<String, String>,
+}
+
+fn resolve_profile_or_err(saved: Option<&Path>) -> Result<PathBuf, String> {
+    match profile::resolve_zen_profile(saved) {
+        Ok(p) => Ok(p),
+        Err(profile::ResolveError::NotFound) => {
+            Err("Zen profile folder not found. Is Zen Browser installed?".into())
+        }
+        Err(profile::ResolveError::MultipleInstallations(_)) => {
+            Err("MULTIPLE_INSTALLATIONS:Multiple Zen installations found. Select one first.".into())
+        }
+        Err(profile::ResolveError::SavedPathInvalid(p)) => {
+            Err(format!("Saved profile path no longer exists: {p}. Open Zync to select a Zen installation."))
+        }
+    }
 }
 
 fn checkpoint_wal(db_path: &Path) -> Result<(), String> {
@@ -132,9 +148,12 @@ fn write_bundle_files(
 ///
 /// The caller (JS) must verify Zen is not running before invoking.
 #[tauri::command]
-pub async fn push_profile() -> Result<String, String> {
-    let profile_dir = profile::find_zen_profile()
-        .ok_or("Zen profile folder not found. Is Zen Browser installed?")?;
+pub async fn push_profile(
+    state: tauri::State<'_, Arc<Mutex<crate::daemon::DaemonState>>>,
+) -> Result<String, String> {
+    let saved_path = state.lock().unwrap().local_state.selected_profile_path.clone();
+    let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
+    let profile_dir = resolve_profile_or_err(saved)?;
 
     let places_path = profile_dir.join("places.sqlite");
     if places_path.exists() {
@@ -174,7 +193,10 @@ pub async fn push_profile() -> Result<String, String> {
 ///
 /// The caller (JS) must verify Zen is not running before invoking.
 #[tauri::command]
-pub async fn pull_profile(sync_code: String) -> Result<Vec<String>, String> {
+pub async fn pull_profile(
+    sync_code: String,
+    state: tauri::State<'_, Arc<Mutex<crate::daemon::DaemonState>>>,
+) -> Result<Vec<String>, String> {
     let (key_hex, url) = transport::parse_sync_code(&sync_code)
         .ok_or("Invalid sync code — expected format ZEN-XXXXXX-YYYYYY")?;
     eprintln!("[zync] pull: downloading from {url}");
@@ -200,8 +222,9 @@ pub async fn pull_profile(sync_code: String) -> Result<Vec<String>, String> {
         ));
     }
 
-    let profile_dir = profile::find_zen_profile()
-        .ok_or("Zen profile folder not found. Is Zen Browser installed?")?;
+    let saved_path = state.lock().unwrap().local_state.selected_profile_path.clone();
+    let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
+    let profile_dir = resolve_profile_or_err(saved)?;
     eprintln!("[zync] pull: writing to {}", profile_dir.display());
 
     let written = write_bundle_files(&profile_dir, &bundle)?;
@@ -215,9 +238,9 @@ pub async fn github_push(
     client: &GitHubClient,
     machine_name: &str,
     last_known_version: u32,
+    saved_profile: Option<&Path>,
 ) -> Result<Option<(u32, SyncMetadata)>, String> {
-    let profile_dir = profile::find_zen_profile()
-        .ok_or("Zen profile folder not found.")?;
+    let profile_dir = resolve_profile_or_err(saved_profile)?;
 
     let places_path = profile_dir.join("places.sqlite");
     if places_path.exists() {
@@ -287,7 +310,7 @@ pub async fn github_push(
 
 /// Download and apply a profile from GitHub slot. Returns written file names.
 /// Caller must verify Zen is not running before calling.
-pub async fn github_pull(client: &GitHubClient, slot: u8) -> Result<Vec<String>, String> {
+pub async fn github_pull(client: &GitHubClient, slot: u8, saved_profile: Option<&Path>) -> Result<Vec<String>, String> {
     let encrypted = client.download_profile(slot).await?;
     let json = crate::crypto::decrypt(&encrypted, &hex_key(&client.encryption_key))?;
 
@@ -301,8 +324,7 @@ pub async fn github_pull(client: &GitHubClient, slot: u8) -> Result<Vec<String>,
         ));
     }
 
-    let profile_dir = profile::find_zen_profile()
-        .ok_or("Zen profile folder not found.")?;
+    let profile_dir = resolve_profile_or_err(saved_profile)?;
 
     write_bundle_files(&profile_dir, &bundle)
 }
