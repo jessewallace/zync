@@ -106,7 +106,8 @@ pub fn run() {
                 s.local_state = crate::local_state::LocalState::load(&config_dir);
             }
 
-            // Auto-detect Zen profile on first run if exactly one installation exists
+            // Auto-detect Zen profile on first run if exactly one installation exists (Linux only)
+            #[cfg(target_os = "linux")]
             {
                 let mut s = state_for_cache.lock().unwrap();
                 if s.local_state.selected_profile_path.is_none() {
@@ -307,20 +308,30 @@ pub struct SnapshotInfo {
 fn ensure_profile_ready_cmd(
     state: tauri::State<'_, Arc<Mutex<daemon::DaemonState>>>,
 ) -> Result<EnsureProfileResult, String> {
-    let saved_path = state.lock().unwrap()
-        .local_state.selected_profile_path.clone();
-    let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
-    match profile::resolve_zen_profile(saved) {
-        Ok(p) => Ok(EnsureProfileResult::Ready(p.to_string_lossy().into_owned())),
-        Err(profile::ResolveError::NotFound) => {
-            Err("Zen profile folder not found. Is Zen Browser installed?".into())
-        }
-        Err(profile::ResolveError::MultipleInstallations(list)) => {
-            Ok(EnsureProfileResult::MultipleInstallations(list))
-        }
-        Err(profile::ResolveError::SavedPathInvalid(p)) => {
-            Err(format!("Saved profile path no longer exists: {p}. Open Zync to select a Zen installation."))
-        }
+    #[cfg(target_os = "linux")]
+    {
+        let saved_path = state.lock().unwrap()
+            .local_state.selected_profile_path.clone();
+        let saved = saved_path.as_ref().map(|s| Path::new(s.as_str()));
+        return match profile::resolve_zen_profile(saved) {
+            Ok(p) => Ok(EnsureProfileResult::Ready(p.to_string_lossy().into_owned())),
+            Err(profile::ResolveError::NotFound) => {
+                Err("Zen profile folder not found. Is Zen Browser installed?".into())
+            }
+            Err(profile::ResolveError::MultipleInstallations(list)) => {
+                Ok(EnsureProfileResult::MultipleInstallations(list))
+            }
+            Err(profile::ResolveError::SavedPathInvalid(p)) => {
+                Err(format!("Saved profile path no longer exists: {p}. Open Zync to select a Zen installation."))
+            }
+        };
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        profile::find_zen_profile()
+            .map(|p| EnsureProfileResult::Ready(p.to_string_lossy().into_owned()))
+            .ok_or_else(|| "Zen profile folder not found. Is Zen Browser installed?".to_string())
     }
 }
 
