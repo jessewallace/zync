@@ -55,41 +55,39 @@ pub fn collect_sync_files() -> Result<Vec<String>, String> {
 }
 
 pub fn find_zen_profile() -> Option<PathBuf> {
-    let profiles_dir = zen_profiles_base()?;
-    eprintln!("[zync] profiles_dir = {}", profiles_dir.display());
+    let bases = zen_profiles_bases();
 
-    let from_ini = read_active_profile_from_ini(&profiles_dir);
-    eprintln!("[zync] profiles.ini result = {:?}", from_ini);
+    for dir in &bases {
+        if !dir.exists() {
+            continue;
+        }
+        eprintln!("[zync] checking profiles_dir = {}", dir.display());
 
-    let fallback = first_release_profile(&profiles_dir);
-    eprintln!("[zync] release-folder fallback = {:?}", fallback);
+        if let Some(from_ini) = read_active_profile_from_ini(dir) {
+            eprintln!("[zync] profiles.ini result = {:?}", from_ini);
+            return Some(from_ini);
+        }
 
-    // Primary: read profiles.ini [InstallXXX] section — this is what Zen actually used last.
-    // Fallback: first folder with "release" in name (covers older Zen versions).
-    let result = from_ini
-        .filter(|p| p.is_dir())
-        .or(fallback)
-        .or_else(|| {
-            #[cfg(target_os = "linux")]
-            {
-                let flatpak = dirs::home_dir()?
-                    .join(".var/app/app.zen_browser.zen/zen/Profiles");
-                read_active_profile_from_ini(&flatpak)
-                    .filter(|p| p.is_dir())
-                    .or_else(|| first_release_profile(&flatpak))
-            }
-            #[cfg(not(target_os = "linux"))]
-            None
-        });
-    eprintln!("[zync] final profile = {:?}", result);
-    result
+        if let Some(fallback) = first_release_profile(dir) {
+            eprintln!("[zync] release-folder fallback = {:?}", fallback);
+            return Some(fallback);
+        }
+    }
+
+    eprintln!("[zync] final profile = None");
+    None
 }
 
 /// Read `profiles.ini` in the Zen data directory and extract the path recorded in the
 /// first `[InstallXXXXXX]` section. That entry is written by Zen itself each launch and
 /// reflects the profile the browser will open next — more reliable than matching folder names.
-fn read_active_profile_from_ini(profiles_dir: &Path) -> Option<PathBuf> {
-    let zen_dir = profiles_dir.parent()?;
+fn read_active_profile_from_ini(dir: &Path) -> Option<PathBuf> {
+    let zen_dir = if dir.file_name().map_or(false, |name| name == "Profiles") {
+        dir.parent()?
+    } else {
+        dir
+    };
+
     let ini_path = zen_dir.join("profiles.ini");
     let content = std::fs::read_to_string(ini_path).ok()?;
 
@@ -100,41 +98,60 @@ fn read_active_profile_from_ini(profiles_dir: &Path) -> Option<PathBuf> {
             in_install_section = line.to_lowercase().starts_with("[install");
         } else if in_install_section {
             if let Some(rel_path) = line.strip_prefix("Default=") {
-                // Value is relative to the zen/ dir, e.g. "Profiles/tcuo77lt.Default (release)"
-                return Some(zen_dir.join(rel_path));
+                // Value is relative to the zen_dir, e.g. "Profiles/tcuo77lt.Default (release)" or "k39t6h5g.Default (release)"
+                let target = zen_dir.join(rel_path);
+                if target.is_dir() {
+                    return Some(target);
+                }
             }
         }
     }
     None
 }
 
-fn zen_profiles_base() -> Option<PathBuf> {
+fn zen_profiles_bases() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
     #[cfg(target_os = "macos")]
-    // ~/Library/Application Support/zen/Profiles
-    return dirs::data_dir().map(|d| d.join("zen/Profiles"));
+    if let Some(d) = dirs::data_dir() {
+        dirs.push(d.join("zen/Profiles"));
+        dirs.push(d.join("zen"));
+    }
 
     #[cfg(target_os = "windows")]
-    // %APPDATA%\zen\Profiles
-    return dirs::data_dir().map(|d| d.join("zen\\Profiles"));
+    if let Some(d) = dirs::data_dir() {
+        dirs.push(d.join("zen\\Profiles"));
+        dirs.push(d.join("zen"));
+    }
 
     #[cfg(target_os = "linux")]
     {
-        // Prefer ~/.zen/Profiles (native install); fall back to XDG data dir
-        // (~/.local/share/zen/Profiles) used by some distro packages.
-        let dotzen = dirs::home_dir().map(|d| d.join(".zen/Profiles"));
-        if dotzen.as_ref().map(|p| p.exists()).unwrap_or(false) {
-            return dotzen;
+        // 1. ~/.zen/Profiles & ~/.zen
+        if let Some(home) = dirs::home_dir() {
+            dirs.push(home.join(".zen/Profiles"));
+            dirs.push(home.join(".zen"));
         }
-        return dirs::data_local_dir()
-            .map(|d| d.join("zen/Profiles"))
-            .or(dotzen);
+        // 2. ~/.config/zen/Profiles & ~/.config/zen (XDG Config Home)
+        if let Some(config) = dirs::config_dir() {
+            dirs.push(config.join("zen/Profiles"));
+            dirs.push(config.join("zen"));
+        }
+        // 3. ~/.local/share/zen/Profiles & ~/.local/share/zen (XDG Data Home)
+        if let Some(data_local) = dirs::data_local_dir() {
+            dirs.push(data_local.join("zen/Profiles"));
+            dirs.push(data_local.join("zen"));
+        }
+        // 4. Flatpak
+        if let Some(home) = dirs::home_dir() {
+            dirs.push(home.join(".var/app/app.zen_browser.zen/zen/Profiles"));
+            dirs.push(home.join(".var/app/app.zen_browser.zen/zen"));
+        }
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    None
+    dirs
 }
 
-fn first_release_profile(profiles_dir: &PathBuf) -> Option<PathBuf> {
+fn first_release_profile(profiles_dir: &Path) -> Option<PathBuf> {
     // Zen names its active profile either "xxxxxxxx.Default (release)" or
     // "xxxxxxxx.default-release" depending on version/platform.
     // Match any folder whose name contains "release" (case-insensitive).
@@ -152,3 +169,47 @@ fn first_release_profile(profiles_dir: &PathBuf) -> Option<PathBuf> {
 fn is_excluded(name: &str) -> bool {
     EXCLUDE_PATTERNS.iter().any(|&pat| name == pat || name.starts_with(pat))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_active_profile_from_ini_custom_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let zen_dir = temp_dir.path();
+        let ini_path = zen_dir.join("profiles.ini");
+        let profile_dir = zen_dir.join("abc1234.Default (release)");
+
+        std::fs::create_dir_all(&profile_dir).unwrap();
+        std::fs::write(
+            ini_path,
+            "[Install12345]\nDefault=abc1234.Default (release)\nLocked=1\n",
+        )
+        .unwrap();
+
+        let result = read_active_profile_from_ini(zen_dir);
+        assert_eq!(result, Some(profile_dir));
+    }
+
+    #[test]
+    fn test_read_active_profile_from_ini_profiles_subdir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let zen_dir = temp_dir.path();
+        let profiles_sub = zen_dir.join("Profiles");
+        let ini_path = zen_dir.join("profiles.ini");
+        let profile_dir = profiles_sub.join("xyz5678.Default (release)");
+
+        std::fs::create_dir_all(&profile_dir).unwrap();
+        std::fs::write(
+            ini_path,
+            "[Install67890]\nDefault=Profiles/xyz5678.Default (release)\nLocked=1\n",
+        )
+        .unwrap();
+
+        let result = read_active_profile_from_ini(&profiles_sub);
+        assert_eq!(result, Some(profile_dir));
+    }
+}
+
+
